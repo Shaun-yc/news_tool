@@ -50,18 +50,20 @@ class ClassifierTests(unittest.TestCase):
     def test_classify_news_uses_default_when_vllm_fails(self, vllm):
         vllm.side_effect = RuntimeError("vllm failed")
 
-        tags, succeeded = classify_news(
-            "標題",
-            "摘要",
-            "http://192.168.0.92:8000",
-            "diffusiongemma-4-26b",
-            300,
-            0,
-            256,
-        )
+        with self.assertLogs("services.classifier", level="ERROR") as logs:
+            tags, succeeded = classify_news(
+                "標題",
+                "摘要",
+                "http://192.168.0.92:8000",
+                "diffusiongemma-4-26b",
+                300,
+                0,
+                256,
+            )
 
         self.assertEqual(tags, DEFAULT_TAGS)
         self.assertFalse(succeeded)
+        self.assertIn("vLLM classification failed for title: 標題", logs.output[0])
 
     @patch("services.classifier.requests.post")
     def test_vllm_request_uses_chat_completions(self, post):

@@ -1,4 +1,3 @@
-from datetime import datetime
 import hashlib
 import logging
 import re
@@ -6,8 +5,7 @@ import re
 import streamlit as st
 
 from services.config import get_settings
-from services.excel_exporter import build_excel_report
-from services.processor import process_news
+from services.report_service import build_report_from_news_list, get_week_date
 from services.word_parser import parse_word_news
 
 
@@ -18,11 +16,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="週新聞彙整系統", page_icon="📰", layout="centered")
-
-
-def get_week_date(filename):
-    date_match = re.search(r"(\d{4})\.(\d{2})\.(\d{2})", filename)
-    return "".join(date_match.groups()) if date_match else datetime.now().strftime("%Y%m%d")
 
 
 def show_processing_summary(summary):
@@ -93,14 +86,13 @@ if uploaded_file is not None:
                     text=f"執行新聞分類：{current}/{total} - {news['zh_title'][:24]}",
                 )
 
-            summary = process_news(
+            report, output_filename, summary = build_report_from_news_list(
                 news_list,
+                uploaded_file.name,
                 settings,
                 on_scrape_progress=update_scrape_progress,
                 on_classify_progress=update_classify_progress,
             )
-            with st.spinner("正在產出 Excel 報告..."):
-                report = build_excel_report(news_list, week_date)
 
             st.session_state["report"] = report.getvalue()
             st.session_state["output_filename"] = output_filename

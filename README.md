@@ -10,6 +10,7 @@
 - 使用內網 vLLM 產生 2 至 5 個新聞分類標籤
 - 產出標準格式 Excel，並標示需人工確認的資料
 - 在畫面顯示處理總數、來源擷取失敗數與分類 fallback 數
+- 提供 FastAPI 端點，供 n8n 或其他系統上傳 Word 並下載 Excel
 
 ## 設定
 
@@ -69,7 +70,7 @@ python -m venv .venv
 
 ```powershell
 docker build -t weekly-news-tool .
-docker run --rm -p 8501:8501 `
+docker run --rm -p 8501:8501 -p 8001:8001 `
   -e VLLM_BASE_URL="http://192.168.0.92:8000" `
   -e VLLM_MODEL="diffusiongemma-4-26b" `
   -e VLLM_TEMPERATURE="0" `
@@ -79,9 +80,46 @@ docker run --rm -p 8501:8501 `
 
 Docker image 會安裝 Playwright Chromium，因此首次 build 會比純 Python image 久。
 
-健康檢查端點：`http://localhost:8501/_stcore/health`
+健康檢查端點：
+
+- Streamlit：`http://localhost:8501/_stcore/health`
+- FastAPI：`http://localhost:8001/health`
 
 啟動後開啟：`http://localhost:8501`
+
+## n8n 串接
+
+FastAPI 服務預設開在 `8001`，提供以下端點：
+
+| Method | Path | 說明 |
+| --- | --- | --- |
+| `GET` | `/health` | API 健康檢查 |
+| `POST` | `/process` | 上傳 `.docx`，回傳產出的 `.xlsx` |
+
+n8n 使用 `HTTP Request` node：
+
+| 設定 | 值 |
+| --- | --- |
+| Method | `POST` |
+| URL | `http://<news-tool-host>:8001/process` |
+| Body Content Type | `Form-Data` |
+| Form field name | `file` |
+| Form field type | Binary/File |
+| Response Format | File |
+
+API 回傳 Excel 檔案，並在 response headers 附上處理摘要：
+
+- `X-News-Total-Count`
+- `X-News-Scrape-Failed-Count`
+- `X-News-Classification-Fallback-Count`
+
+curl 測試：
+
+```powershell
+curl.exe -X POST "http://localhost:8001/process" `
+  -F "file=@D:\path\to\週新聞_2026.06.18.docx" `
+  -o "永智週新聞csv_20260618.xlsx"
+```
 
 ## 測試
 
@@ -93,6 +131,7 @@ Docker image 會安裝 Playwright Chromium，因此首次 build 會比純 Python
 
 ```text
 app.py                     Streamlit 操作介面
+api.py                     FastAPI 自動化 API
 services/config.py         環境設定
 services/processor.py      處理流程
 services/word_parser.py    Word 解析

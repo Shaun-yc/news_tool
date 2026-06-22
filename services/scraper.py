@@ -3,6 +3,7 @@ import json
 import re
 from urllib.parse import urljoin
 
+import trafilatura
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
@@ -43,7 +44,7 @@ def _get_public_response(session, url, headers, timeout):
     raise ValueError("來源網站重新導向次數過多")
 
 
-def _extract_article(html):
+def _extract_article(html, url=""):
     soup = BeautifulSoup(html, "html.parser")
     result = {"en_title": "", "pubdate": "", "en_content": "", "scrape_succeeded": False}
 
@@ -74,6 +75,8 @@ def _extract_article(html):
     else:
         result["en_title"] = "Click Link to View Original Title"
 
+    # 修正：meta_date 在 else 外部使用，必須預先初始化避免 NameError
+    meta_date = None
     if structured_article.get("datePublished"):
         result["pubdate"] = str(structured_article["datePublished"])[:10]
     else:
@@ -84,29 +87,47 @@ def _extract_article(html):
         date_match = re.search(r"\d{4}[-/]\d{2}[-/]\d{2}", html)
         result["pubdate"] = date_match.group(0).replace("/", "-") if date_match else ""
 
-    text_candidates = []
+    text_content = ""
+
+    # 優先：JSON-LD articleBody（最完整）
     if structured_article.get("articleBody"):
-        text_candidates.append(str(structured_article["articleBody"]).strip())
+        text_content = str(structured_article["articleBody"]).strip()
 
-    article_root = soup.find("article") or soup.find("main")
-    paragraphs = article_root.find_all("p") if article_root else soup.find_all("p")
-    text_candidates.extend(
-        paragraph.get_text(" ", strip=True)
-        for paragraph in paragraphs
-        if len(paragraph.get_text(" ", strip=True)) > 30
-    )
+    # 次選：trafilatura（處理 div 段落、JS 渲染後的各類版面）
+    if len(text_content) < MIN_CONTENT_LENGTH:
+        try:
+            extracted = trafilatura.extract(
+                html,
+                url=url or None,
+                include_comments=False,
+                include_tables=False,
+                favor_recall=True,
+            )
+            if extracted and len(extracted) >= MIN_CONTENT_LENGTH:
+                text_content = extracted
+        except Exception:
+            pass
 
-    unique_candidates = list(dict.fromkeys(text for text in text_candidates if text))
-    text_content = " ".join(unique_candidates)
+    # 備用：BeautifulSoup 抓 <p> 段落
+    if len(text_content) < MIN_CONTENT_LENGTH:
+        article_root = soup.find("article") or soup.find("main")
+        paragraphs = article_root.find_all("p") if article_root else soup.find_all("p")
+        para_texts = [
+            p.get_text(" ", strip=True)
+            for p in paragraphs
+            if len(p.get_text(" ", strip=True)) > 30
+        ]
+        text_content = " ".join(para_texts)
+
+    # 最後：meta description 兜底
     if len(text_content) < MIN_CONTENT_LENGTH:
         description = soup.find("meta", attrs={"name": "description"}) or soup.find(
             "meta", property="og:description"
         )
         if description and description.get("content"):
-            text_content = " ".join(
-                dict.fromkeys([text_content, description["content"].strip()])
-            ).strip()
-    result["en_content"] = text_content[:2500] or "無法辨識內文段落，請點擊連結查看網頁。"
+            text_content = description["content"].strip()
+
+    result["en_content"] = text_content[:4000] or "無法辨識內文段落，請點擊連結查看網頁。"
     result["scrape_succeeded"] = len(text_content) >= MIN_CONTENT_LENGTH
     return result
 
@@ -115,7 +136,7 @@ def _scrape_with_requests(session, url, timeout):
     response = _get_public_response(session, url, DEFAULT_HEADERS, timeout)
     response.raise_for_status()
     response.encoding = response.apparent_encoding
-    return _extract_article(response.text)
+    return _extract_article(response.text, url=url)
 
 
 def _scrape_with_playwright(url, timeout):
@@ -130,11 +151,15 @@ def _scrape_with_playwright(url, timeout):
             page = context.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
             validate_public_url(page.url)
-            page.wait_for_timeout(1500)
+            # 等待 JS 渲染完成：先等 networkidle，超時則直接用現有 DOM
+            try:
+                page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                page.wait_for_timeout(2000)
             html = page.content()
         finally:
             browser.close()
-    return _extract_article(html)
+    return _extract_article(html, url=url)
 
 
 def scrape_article(session, url, timeout=7):

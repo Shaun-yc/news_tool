@@ -42,12 +42,12 @@ def process_news(
         on_classify_progress(index, total_count, news)
         tags, succeeded = classify_news(
             news["zh_title"],
-            news["content"],
-            settings.vllm_base_url,
-            settings.vllm_model,
+            news["en_content"],
+            settings.classify_base_url,
+            settings.classify_model,
             settings.vllm_timeout_seconds,
             settings.vllm_temperature,
-            settings.vllm_max_tokens,
+            settings.classify_max_tokens,
         )
         news["subcategory"] = tags
         news["classification_succeeded"] = succeeded

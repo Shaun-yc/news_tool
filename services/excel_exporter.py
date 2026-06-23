@@ -1,10 +1,19 @@
 from datetime import datetime
 import io
+import re
 from urllib.parse import urlparse
 
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+
+_ILLEGAL_XML_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _sanitize(value):
+    if isinstance(value, str):
+        return _ILLEGAL_XML_CHARS.sub("", value)
+    return value
 
 
 HEADERS = [
@@ -76,7 +85,7 @@ def build_excel_report(news_list, week_date):
             "",
         ]
         for column, value in enumerate(row_data, 1):
-            cell = worksheet.cell(row=index + 2, column=column, value=value)
+            cell = worksheet.cell(row=index + 2, column=column, value=_sanitize(value))
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
     widths = [18, 40, 14, 12, 30, 30, 35, 12, 15, 45, 60, 60, 10, 12]

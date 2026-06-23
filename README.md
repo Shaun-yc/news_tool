@@ -14,117 +14,119 @@
 
 ## 設定
 
-以環境變數設定服務。可參考 `.env.example`。此檔案是部署設定範本，程式不會自動載入：
+複製 `.env.example` 為 `.env` 後修改：
+
+```powershell
+Copy-Item .env.example .env
+```
 
 | 變數 | 必填 | 預設值 | 說明 |
 | --- | --- | --- | --- |
 | `VLLM_BASE_URL` | 否 | `http://192.168.0.92:8000` | vLLM OpenAI-compatible 服務位址 |
-| `VLLM_MODEL` | 否 | `diffusiongemma-4-26b` | vLLM 分類模型 |
-| `VLLM_TIMEOUT_SECONDS` | 否 | `600` | vLLM 推論逾時秒數；首次載入大型模型可能較久 |
-| `VLLM_TEMPERATURE` | 否 | `0` | 模型溫度；分類任務建議維持 0，降低幻想標籤機率 |
-| `VLLM_MAX_TOKENS` | 否 | `256` | 最大輸出 token 數；分類標籤通常不需要太大 |
+| `VLLM_MODEL` | 否 | `diffusiongemma-4-26b` | 主模型名稱 |
+| `VLLM_TIMEOUT_SECONDS` | 否 | `600` | vLLM 推論逾時秒數 |
+| `VLLM_TEMPERATURE` | 否 | `0` | 模型溫度；分類任務建議維持 0 |
+| `VLLM_MAX_TOKENS` | 否 | `256` | 最大輸出 token 數 |
+| `CLASSIFY_BASE_URL` | 否 | 同 `VLLM_BASE_URL` | 分類專用模型位址；未設定時退回主模型 |
+| `CLASSIFY_MODEL` | 否 | 同 `VLLM_MODEL` | 分類專用模型名稱 |
+| `CLASSIFY_MAX_TOKENS` | 否 | `64` | 分類輸出最大 token 數 |
 | `SCRAPE_DELAY_SECONDS` | 否 | `0.8` | 每次網站擷取後等待秒數 |
 | `CLASSIFY_DELAY_SECONDS` | 否 | `3.5` | 每次 AI 分類後等待秒數 |
 | `REQUEST_TIMEOUT_SECONDS` | 否 | `7` | 網站擷取逾時秒數 |
 
 ## 下載使用
 
-從 GitHub 下載專案：
-
 ```powershell
 git clone https://github.com/Shaun-yc/news_tool.git
 cd news_tool
 ```
 
-此系統需要可連線的 vLLM OpenAI-compatible API。預設範例使用內網位址 `http://192.168.0.92:8000`，若部署在其他環境，請將 `VLLM_BASE_URL` 改成自己的 vLLM 服務位址。
+此系統需要可連線的 vLLM OpenAI-compatible API。預設範例使用內網位址 `http://192.168.0.92:8000`，請將 `.env` 中的 `VLLM_BASE_URL` 改成自己的 vLLM 服務位址。
 
-## 本機啟動
+## Docker 部署（建議）
 
-前置條件：Windows 已安裝 Python 3.12。先確認版本：
-
-```powershell
-python --version
-```
-
-若系統找不到 `python`，可使用 `winget` 安裝後重新開啟 PowerShell：
+建議使用 Docker 啟動，避免本機 Python 與 Playwright Chromium 版本不一致。
 
 ```powershell
-winget install --exact --id Python.Python.3.12
+# 首次啟動 / 程式碼更新後
+docker compose up -d --build
+
+# 日常啟動
+docker compose up -d
+
+# 停止
+docker compose down
+
+# 即時 log
+docker compose logs -f
 ```
 
-在專案目錄執行：
+啟動後：
+- Streamlit UI：`http://localhost:8501`
+- FastAPI 健康檢查：`http://localhost:8001/health`
+
+> Docker image 會安裝 Playwright Chromium，首次 build 時間較長。
+
+## 本機啟動（開發用）
+
+前置條件：Python 3.12。
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m streamlit run app.py
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m playwright install chromium
+
+# 分別啟動兩個服務
+.venv\Scripts\python.exe -m streamlit run app.py
+.venv\Scripts\python.exe -m uvicorn api:app --host 0.0.0.0 --port 8001
 ```
-
-開啟 `http://localhost:8501`。
-
-若 `.venv` 是使用其他 Python 安裝建立，或原 Python 已移除，請先刪除舊的 `.venv` 再重新建立。
-
-## Docker 部署
-
-建議使用 Docker 啟動，避免本機 Python 與 Playwright Chromium 版本不一致：
-
-```powershell
-docker build -t weekly-news-tool .
-docker run --rm -p 8501:8501 -p 8001:8001 `
-  -e VLLM_BASE_URL="http://192.168.0.92:8000" `
-  -e VLLM_MODEL="diffusiongemma-4-26b" `
-  -e VLLM_TEMPERATURE="0" `
-  -e VLLM_MAX_TOKENS="256" `
-  weekly-news-tool
-```
-
-Docker image 會安裝 Playwright Chromium，因此首次 build 會比純 Python image 久。
-
-健康檢查端點：
-
-- Streamlit：`http://localhost:8501/_stcore/health`
-- FastAPI：`http://localhost:8001/health`
-
-啟動後開啟：`http://localhost:8501`
 
 ## n8n 串接
 
-FastAPI 服務預設開在 `8001`，提供以下端點：
+FastAPI 服務開在 `8001`，提供以下端點：
 
 | Method | Path | 說明 |
 | --- | --- | --- |
 | `GET` | `/health` | API 健康檢查 |
 | `POST` | `/process` | 上傳 `.docx`，回傳產出的 `.xlsx` |
 
-n8n 使用 `HTTP Request` node：
+### 匯入 n8n workflow
 
-| 設定 | 值 |
-| --- | --- |
-| Method | `POST` |
-| URL | `http://<news-tool-host>:8001/process` |
-| Body Content Type | `Form-Data` |
-| Form field name | `file` |
-| Form field type | Binary/File |
-| Response Format | File |
+使用 `n8n-webhook-news-docx-to-excel-v1.json` 匯入 n8n，流程說明：
 
-API 回傳 Excel 檔案，並在 response headers 附上處理摘要：
+1. **Webhook** 接收 `.docx` 檔案（POST `/webhook/news-process`）
+2. 轉送至 news_tool API（`POST /process`）
+3. 成功 → 將 `.xlsx` 直接回傳給呼叫端 + Slack 通知
+4. 失敗 → 回傳錯誤 JSON + Slack 通知
 
-- `X-News-Total-Count`
-- `X-News-Scrape-Failed-Count`
-- `X-News-Classification-Fallback-Count`
+### curl 測試
 
-curl 測試：
+```powershell
+curl.exe -X POST "http://<n8n-host>:<port>/webhook/news-process" `
+  -F "file=@D:\path\to\weekly.docx" `
+  --output result.xlsx
+```
+
+直接呼叫 API（不經 n8n）：
 
 ```powershell
 curl.exe -X POST "http://localhost:8001/process" `
-  -F "file=@D:\path\to\週新聞_2026.06.18.docx" `
-  -o "永智週新聞csv_20260618.xlsx"
+  -F "file=@D:\path\to\weekly.docx" `
+  --output result.xlsx
 ```
+
+API 回傳 Excel 檔案，並在 response headers 附上處理摘要：
+
+| Header | 說明 |
+| --- | --- |
+| `X-News-Total-Count` | 總新聞數 |
+| `X-News-Scrape-Failed-Count` | 擷取失敗數 |
+| `X-News-Classification-Fallback-Count` | 分類 fallback 數 |
 
 ## 測試
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
 ## 專案結構
@@ -132,11 +134,18 @@ curl.exe -X POST "http://localhost:8001/process" `
 ```text
 app.py                     Streamlit 操作介面
 api.py                     FastAPI 自動化 API
-services/config.py         環境設定
-services/processor.py      處理流程
-services/word_parser.py    Word 解析
-services/scraper.py        新聞網頁擷取
-services/classifier.py     vLLM 分類
-services/excel_exporter.py Excel 匯出
-tests/                     本機單元測試
+start.sh                   Docker 容器進入點（同時啟動 FastAPI + Streamlit）
+docker-compose.yml         Docker 統一啟動配置
+Dockerfile                 容器建置定義
+services/
+  config.py                環境設定
+  processor.py             處理流程協調
+  word_parser.py           Word 解析
+  scraper.py               新聞網頁擷取
+  classifier.py            vLLM 分類
+  summarizer.py            英文全文摘要（繁體中文）
+  report_service.py        報告組裝
+  excel_exporter.py        Excel 匯出
+  url_security.py          URL 安全性驗證（SSRF 防護）
+tests/                     pytest 單元測試
 ```

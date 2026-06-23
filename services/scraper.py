@@ -17,9 +17,43 @@ DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
 }
+
+# Playwright 啟動參數：隱藏自動化特徵
+_PLAYWRIGHT_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+]
+
+# 注入 script：移除 navigator.webdriver 旗標，防止反爬蟲偵測
+_STEALTH_SCRIPT = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});
+Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+"""
+
+# Cookie 同意彈窗常見的接受按鈕選擇器
+_COOKIE_ACCEPT_SELECTORS = [
+    "button[id*='accept']",
+    "button[class*='accept']",
+    "button[id*='agree']",
+    "button[class*='agree']",
+    "button[id*='consent']",
+    "[aria-label*='Accept']",
+    "[aria-label*='agree']",
+]
 
 
 def _failure_result(message="無法自動爬取原文，請手動確認來源網址。"):
@@ -139,23 +173,46 @@ def _scrape_with_requests(session, url, timeout):
     return _extract_article(response.text, url=url)
 
 
+def _dismiss_cookie_consent(page):
+    """嘗試點擊 Cookie 同意彈窗的接受按鈕。"""
+    for selector in _COOKIE_ACCEPT_SELECTORS:
+        try:
+            btn = page.query_selector(selector)
+            if btn and btn.is_visible():
+                btn.click()
+                page.wait_for_timeout(500)
+                return
+        except Exception:
+            pass
+
+
 def _scrape_with_playwright(url, timeout):
     validate_public_url(url)
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=_PLAYWRIGHT_ARGS,
+        )
         try:
             context = browser.new_context(
                 user_agent=DEFAULT_HEADERS["User-Agent"],
                 locale="en-US",
+                extra_http_headers={
+                    "Accept": DEFAULT_HEADERS["Accept"],
+                    "Accept-Language": DEFAULT_HEADERS["Accept-Language"],
+                },
             )
             page = context.new_page()
+            # 注入 stealth script，在每個頁面載入前執行
+            page.add_init_script(_STEALTH_SCRIPT)
             page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
             validate_public_url(page.url)
-            # 等待 JS 渲染完成：先等 networkidle，超時則直接用現有 DOM
+            # 等待 JS 渲染；networkidle 超時則等固定時間
             try:
                 page.wait_for_load_state("networkidle", timeout=5000)
             except Exception:
                 page.wait_for_timeout(2000)
+            _dismiss_cookie_consent(page)
             html = page.content()
         finally:
             browser.close()

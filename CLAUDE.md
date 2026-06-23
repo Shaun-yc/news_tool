@@ -11,22 +11,29 @@
 ## 執行指令
 
 ```powershell
-# 啟動 Streamlit UI（開發用）
-cd D:\news_tool
+# ── Production（Docker）──────────────────────────────
+# 首次啟動 / 程式碼更新後
+docker compose up -d --build
+
+# 日常啟動（不重新 build）
+docker compose up -d
+
+# 停止
+docker compose down
+
+# 即時 log
+docker compose logs -f
+
+# ── 本機開發（不使用 Docker）────────────────────────
+# Streamlit UI
 .venv\Scripts\python.exe -m streamlit run app.py
 
-# 啟動 FastAPI（n8n 整合）
-.venv\Scripts\python.exe -m uvicorn api:app --host 0.0.0.0 --port 8502
+# FastAPI
+.venv\Scripts\python.exe -m uvicorn api:app --host 0.0.0.0 --port 8001
 
-# 執行測試
+# ── 測試 ────────────────────────────────────────────
 .venv\Scripts\python.exe -m pytest tests/ -v
-
-# 執行單一測試
 .venv\Scripts\python.exe -m pytest tests/test_classifier.py -v
-
-# Docker 啟動（完整 Production）
-docker build -t news_tool .
-docker run --env-file .env -p 8501:8501 news_tool
 ```
 
 ## 專案結構
@@ -35,6 +42,8 @@ docker run --env-file .env -p 8501:8501 news_tool
 |---|---|
 | `app.py` | Streamlit 主程式，上傳 Word → 產出 Excel |
 | `api.py` | FastAPI 端點，`POST /process` 接收 .docx 回傳 .xlsx |
+| `docker-compose.yml` | Docker 統一啟動配置 |
+| `start.sh` | 容器進入點，同時啟動 FastAPI（port 8001）與 Streamlit（port 8501）|
 | `services/config.py` | 設定讀取（環境變數 → `Settings` dataclass） |
 | `services/word_parser.py` | 解析 `.docx`，萃取 `zh_title`、`en_title`、`url` |
 | `services/scraper.py` | Playwright 擷取來源網頁，帶 delay 避免封鎖 |
@@ -50,11 +59,19 @@ docker run --env-file .env -p 8501:8501 news_tool
 複製 `.env.example` 為 `.env` 後修改：
 
 ```
-VLLM_BASE_URL=http://192.168.0.92:8000     # 本地 vLLM 服務位址
-VLLM_MODEL=diffusiongemma-4-26b            # 使用的模型名稱
-VLLM_TIMEOUT_SECONDS=600                   # vLLM 請求 timeout（秒）
+# 主模型（scrape 摘要 / 分類）
+VLLM_BASE_URL=http://192.168.0.92:8000     # vLLM 服務位址
+VLLM_MODEL=diffusiongemma-4-26b            # 主模型名稱
+VLLM_TIMEOUT_SECONDS=600                   # 請求 timeout（秒）
 VLLM_TEMPERATURE=0                         # 生成溫度，0 = 確定性輸出
-VLLM_MAX_TOKENS=256                        # 分類輸出最大 token 數
+VLLM_MAX_TOKENS=256                        # 最大輸出 token
+
+# 分類專用模型（未設定時退回主模型）
+CLASSIFY_BASE_URL=http://192.168.0.92:8001 # 分類模型位址
+CLASSIFY_MODEL=gemma-4-e4b                 # 分類模型名稱
+CLASSIFY_MAX_TOKENS=64                     # 分類輸出最大 token
+
+# 爬蟲設定
 SCRAPE_DELAY_SECONDS=0.8                   # 每次擷取間隔（秒）
 CLASSIFY_DELAY_SECONDS=3.5                 # 每次分類間隔（秒）
 REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
@@ -74,6 +91,6 @@ REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
 
 ## 部署
 
-- Streamlit 預設監聽 `0.0.0.0:8501`（見 `.streamlit/config.toml`）
-- FastAPI 建議以 `0.0.0.0:8502` 啟動，避免與 Streamlit 衝突
+- FastAPI 監聽 `0.0.0.0:8001`，Streamlit 監聽 `0.0.0.0:8501`
+- Healthcheck 定義在 `Dockerfile`，interval 30s / timeout 5s / retries 3
 - GitHub Remote：`https://github.com/Shaun-yc/news_tool.git`

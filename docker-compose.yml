@@ -1,0 +1,10 @@
+services:
+  news_tool:
+    build: .
+    image: news_tool:latest
+    container_name: weekly-news-tool-local
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8001:8001"
+      - "8501:8501"

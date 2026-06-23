@@ -39,13 +39,17 @@ st.write("上傳週新聞 Word 檔案後，系統將擷取來源資訊、執行�
 with st.sidebar:
     st.subheader("系統狀態")
     st.success("分類模式：vLLM")
-    st.caption(f"vLLM：`{settings.vllm_base_url}`")
-    st.caption(f"vLLM 模型：`{settings.vllm_model}`")
+    st.caption("**分類模型**")
+    st.caption(f"endpoint：`{settings.classify_base_url}`")
+    st.caption(f"模型：`{settings.classify_model}`")
     st.caption(
-        "模型參數："
         f"`temperature={settings.vllm_temperature}`, "
-        f"`max_tokens={settings.vllm_max_tokens}`"
+        f"`max_tokens={settings.classify_max_tokens}`"
     )
+    st.divider()
+    st.caption("**主模型（爬取輔助）**")
+    st.caption(f"endpoint：`{settings.vllm_base_url}`")
+    st.caption(f"模型：`{settings.vllm_model}`")
 
 uploaded_file = st.file_uploader("上傳週新聞 Word 檔案", type=["docx"])
 

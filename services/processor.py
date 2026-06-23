@@ -42,7 +42,7 @@ def process_news(
         on_classify_progress(index, total_count, news)
         tags, succeeded = classify_news(
             news["zh_title"],
-            news["en_content"],
+            news["content"],
             settings.classify_base_url,
             settings.classify_model,
             settings.vllm_timeout_seconds,

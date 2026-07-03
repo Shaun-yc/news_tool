@@ -23,7 +23,7 @@ class ProcessorTests(unittest.TestCase):
             "en_content": "無法自動爬取原文",
             "scrape_succeeded": False,
         }
-        classify_news.return_value = ("排放管理;國際事務", False)
+        classify_news.return_value = ("待人工確認", False)
         settings = Settings(
             vllm_base_url="http://192.168.0.92:8000",
             vllm_model="test-model",
@@ -33,6 +33,9 @@ class ProcessorTests(unittest.TestCase):
             classify_delay_seconds=0,
             request_timeout_seconds=7,
             vllm_timeout_seconds=300,
+            classify_base_url="http://192.168.0.92:8001",
+            classify_model="classify-model",
+            classify_max_tokens=64,
         )
         news_list = [
             {
@@ -52,7 +55,7 @@ class ProcessorTests(unittest.TestCase):
         self.assertEqual(summary.total_count, 1)
         self.assertEqual(summary.scrape_failed_count, 1)
         self.assertEqual(summary.classification_fallback_count, 1)
-        self.assertEqual(news_list[0]["subcategory"], "排放管理;國際事務")
+        self.assertEqual(news_list[0]["subcategory"], "待人工確認")
         scrape_article.assert_called_once_with(
             ANY,
             "https://www.example.com/news/1",
@@ -61,11 +64,11 @@ class ProcessorTests(unittest.TestCase):
         classify_news.assert_called_once_with(
             "測試標題",
             "測試摘要",
-            "http://192.168.0.92:8000",
-            "test-model",
+            "http://192.168.0.92:8001",
+            "classify-model",
             300,
             0,
-            256,
+            64,
         )
 
 

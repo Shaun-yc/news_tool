@@ -11,13 +11,13 @@ class ClassifierTests(unittest.TestCase):
             "碳定價;氣候法制",
         )
 
-    def test_normalize_tags_accepts_single_allowed_tag(self):
-        self.assertEqual(normalize_tags("淨零科技"), "淨零科技")
+    def test_normalize_tags_rejects_single_allowed_tag(self):
+        self.assertIsNone(normalize_tags("淨零科技"))
 
     def test_normalize_tags_drops_unknown_tags(self):
         self.assertEqual(
-            normalize_tags("未知標籤;碳足跡"),
-            "碳足跡",
+            normalize_tags("未知標籤;碳足跡;氣候法制"),
+            "碳足跡;氣候法制",
         )
 
     def test_normalize_tags_rejects_none(self):
@@ -56,6 +56,24 @@ class ClassifierTests(unittest.TestCase):
     @patch("services.classifier._classify_with_vllm")
     def test_classify_news_requires_review_when_model_returns_none(self, vllm):
         vllm.return_value = "NONE"
+
+        with self.assertLogs("services.classifier", level="WARNING"):
+            tags, succeeded = classify_news(
+                "標題",
+                "摘要",
+                "http://192.168.0.92:8000",
+                "diffusiongemma-4-26b",
+                300,
+                0,
+                256,
+            )
+
+        self.assertEqual(tags, REVIEW_REQUIRED)
+        self.assertFalse(succeeded)
+
+    @patch("services.classifier._classify_with_vllm")
+    def test_classify_news_requires_review_when_only_one_tag_is_valid(self, vllm):
+        vllm.return_value = "淨零科技"
 
         with self.assertLogs("services.classifier", level="WARNING"):
             tags, succeeded = classify_news(

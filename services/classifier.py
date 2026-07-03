@@ -4,7 +4,7 @@ import re
 import requests
 
 
-DEFAULT_TAGS = "溫室氣體減量;碳定價"
+REVIEW_REQUIRED = "待人工確認"
 ALLOWED_TAGS = {
     "溫室氣體減量",
     "氣候變遷調適",
@@ -30,19 +30,16 @@ def normalize_tags(result):
     # 清除 Prompt 回聲（模型有時會重複輸出「輸出：」前綴）
     result = re.sub(r'^.*?輸出(?:結果)?[：:]\s*', '', result).strip()
     normalized_result = result.replace("\n", ";").replace("；", ";").replace(",", ";").replace("，", ";")
+    if normalized_result.strip().upper() == "NONE":
+        return None
+
     tags = []
     for raw in normalized_result.split(";"):
         # 只去除各標籤頭尾的裝飾字元，保留標籤內部的括號（如 NDC）
         tag = raw.strip().strip('【】[]「」「」\'"')
         if tag in ALLOWED_TAGS and tag not in tags:
             tags.append(tag)
-    if len(tags) == 1:
-        for fallback_tag in DEFAULT_TAGS.split(";"):
-            if fallback_tag not in tags:
-                tags.append(fallback_tag)
-            if len(tags) == 2:
-                break
-    if 2 <= len(tags) <= 5:
+    if 1 <= len(tags) <= 5:
         return ";".join(tags)
     if len(tags) > 5:
         return ";".join(tags[:5])
@@ -74,10 +71,12 @@ def _build_prompt(title, content):
 氣候法制：氣候相關立法、法規制定、氣候訴訟與司法判決。
 
 【任務規則】
-1. 選出 2～5 個最相關標籤，依相關性由高至低排列。
+1. 選出 1～5 個最相關標籤，依相關性由高至低排列。
 2. 只選新聞中有明確依據的標籤，不湊數量。
 3. 只能輸出標籤池內的標籤名稱，一字不差。
 4. 標籤間以半形分號「;」分隔，只輸出一行，不含任何說明或換行。
+5. 若標題與摘要不足以支持任何標籤，輸出 NONE。
+6. 不得僅因新聞屬於氣候議題，就預設選擇「溫室氣體減量」或「碳定價」。
 
 【範例】
 標題：歐盟宣布碳邊境調整機制正式啟動
@@ -101,7 +100,8 @@ def _classify_with_vllm(base_url, model_name, prompt, timeout, temperature, max_
                     "role": "system",
                     "content": (
                         "你是嚴格的標籤分類器。只能從用戶指定的標籤池中選取標籤，"
-                        "以分號分隔輸出，絕對不輸出任何標籤池以外的文字、解釋或說明。"
+                        "以分號分隔輸出；若沒有充分依據則輸出 NONE。"
+                        "絕對不輸出其他文字、解釋或說明。"
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -144,4 +144,4 @@ def classify_news(
     except Exception:
         logger.exception("vLLM classification failed for title: %s", title)
 
-    return DEFAULT_TAGS, False
+    return REVIEW_REQUIRED, False

@@ -23,12 +23,12 @@ def show_processing_summary(summary):
     columns = st.columns(3)
     columns[0].metric("新聞總數", summary.total_count)
     columns[1].metric("來源擷取失敗", summary.scrape_failed_count)
-    columns[2].metric("分類使用預設標籤", summary.classification_fallback_count)
+    columns[2].metric("分類待人工確認", summary.classification_fallback_count)
 
     if summary.scrape_failed_count:
         st.warning("部分來源網站無法自動擷取，Excel 已保留來源網址與人工確認提示。")
     if summary.classification_fallback_count:
-        st.warning("部分新聞無法由 vLLM 完成分類，Excel 已套用預設標籤，請於下載後確認。")
+        st.warning("部分新聞缺乏足夠分類依據或模型回應無效，Excel 已標記「待人工確認」。")
 
 
 settings = get_settings()

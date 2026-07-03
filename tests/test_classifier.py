@@ -1,7 +1,15 @@
 import unittest
 from unittest.mock import patch
 
-from services.classifier import REVIEW_REQUIRED, _classify_with_vllm, classify_news, normalize_tags
+from services.classifier import (
+    MAX_ENGLISH_EVIDENCE_CHARS,
+    REVIEW_REQUIRED,
+    _build_prompt,
+    _classify_with_vllm,
+    _select_english_evidence,
+    classify_news,
+    normalize_tags,
+)
 
 
 class ClassifierTests(unittest.TestCase):
@@ -34,6 +42,22 @@ class ClassifierTests(unittest.TestCase):
             ),
             "溫室氣體減量;氣候變遷調適;公約會議及進展;"
             "各國減碳目標(NDC);碳定價",
+        )
+
+    def test_build_prompt_includes_chinese_summary_and_english_evidence(self):
+        prompt = _build_prompt("中文標題", "中文摘要", "English source evidence")
+
+        self.assertIn("中文標題：中文標題", prompt)
+        self.assertIn("中文摘要：中文摘要", prompt)
+        self.assertIn("英文原文證據：English source evidence", prompt)
+
+    def test_select_english_evidence_limits_prompt_input(self):
+        evidence = _select_english_evidence("A" * 10000)
+
+        self.assertIn("[中段省略]", evidence)
+        self.assertLessEqual(
+            len(evidence.replace("\n[中段省略]\n", "")),
+            MAX_ENGLISH_EVIDENCE_CHARS,
         )
 
     @patch("services.classifier._classify_with_vllm")

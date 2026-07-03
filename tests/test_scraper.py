@@ -92,6 +92,39 @@ class ScraperTests(unittest.TestCase):
         self.assertEqual(result["en_content"], article_body)
         self.assertTrue(result["scrape_succeeded"])
 
+    def test_extract_article_does_not_guess_unrelated_date(self):
+        result = _extract_article(
+            """
+            <html><head>
+              <meta property="article:modified_time" content="2026-06-20T08:00:00Z">
+              <script type="application/ld+json">
+                {"@type":"Event","datePublished":"2026-06-18T08:00:00Z",
+                 "startDate":"2027-03-15T09:00:00Z"}
+              </script>
+              <title>Article without a published date</title>
+            </head><body>
+              <article><p>This article mentions an unrelated event scheduled for 2027-03-15,
+              but the page does not provide a trustworthy publication date for the article.</p></article>
+            </body></html>
+            """
+        )
+
+        self.assertEqual(result["pubdate"], "")
+
+    def test_extract_article_uses_semantic_published_time(self):
+        result = _extract_article(
+            """
+            <html><head><title>Semantic date article</title></head>
+            <body><article>
+              <time itemprop="datePublished" datetime="2026-07-02T09:30:00+08:00"></time>
+              <p>This article contains enough meaningful text to pass the minimum article
+              content length and verify semantic publication date extraction correctly.</p>
+            </article></body></html>
+            """
+        )
+
+        self.assertEqual(result["pubdate"], "2026-07-02")
+
     def test_scrape_article_skips_empty_url(self):
         result = scrape_article(FakeSession(), "")
 

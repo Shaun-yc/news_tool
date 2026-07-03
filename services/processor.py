@@ -48,6 +48,7 @@ def process_news(
             settings.vllm_timeout_seconds,
             settings.vllm_temperature,
             settings.classify_max_tokens,
+            english_content=news.get("en_content", "") if news.get("scrape_succeeded") else "",
         )
         news["subcategory"] = tags
         news["classification_succeeded"] = succeeded

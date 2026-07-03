@@ -1,6 +1,7 @@
 import logging
 import json
 import re
+from datetime import datetime
 from urllib.parse import urljoin
 
 import trafilatura
@@ -78,11 +79,74 @@ def _get_public_response(session, url, headers, timeout):
     raise ValueError("來源網站重新導向次數過多")
 
 
+def _normalize_published_date(value):
+    match = re.match(r"^\s*(\d{4})[-/](\d{2})[-/](\d{2})", str(value or ""))
+    if not match:
+        return ""
+    normalized = "-".join(match.groups())
+    try:
+        datetime.strptime(normalized, "%Y-%m-%d")
+    except ValueError:
+        return ""
+    return normalized
+
+
+def _extract_published_date(soup, structured_candidates):
+    # 結構化新聞資料的 datePublished 可信度最高；刻意不採用 dateModified。
+    for candidate in structured_candidates:
+        candidate_types = candidate.get("@type", [])
+        if isinstance(candidate_types, str):
+            candidate_types = [candidate_types]
+        is_article = bool(candidate.get("articleBody")) or any(
+            article_type in {
+                "Article",
+                "NewsArticle",
+                "AnalysisNewsArticle",
+                "ReportageNewsArticle",
+                "BlogPosting",
+            }
+            for article_type in candidate_types
+        )
+        if not is_article:
+            continue
+        published_date = _normalize_published_date(candidate.get("datePublished"))
+        if published_date:
+            return published_date
+
+    meta_selectors = [
+        ("property", "article:published_time"),
+        ("itemprop", "datePublished"),
+        ("name", "parsely-pub-date"),
+        ("name", "pub_date"),
+        ("name", "publishdate"),
+        ("name", "datePublished"),
+    ]
+    for attribute, value in meta_selectors:
+        element = soup.find("meta", attrs={attribute: value})
+        if element:
+            published_date = _normalize_published_date(element.get("content"))
+            if published_date:
+                return published_date
+
+    time_element = soup.find("time", attrs={"itemprop": "datePublished"})
+    if not time_element:
+        time_element = soup.find(
+            "time",
+            class_=re.compile(r"\b(?:publish|published|posted)(?:[-_\s]|$)", re.IGNORECASE),
+        )
+    if time_element:
+        return _normalize_published_date(
+            time_element.get("datetime") or time_element.get_text(" ", strip=True)
+        )
+    return ""
+
+
 def _extract_article(html, url=""):
     soup = BeautifulSoup(html, "html.parser")
     result = {"en_title": "", "pubdate": "", "en_content": "", "scrape_succeeded": False}
 
     structured_articles = []
+    structured_candidates = []
     for script in soup.find_all("script", type="application/ld+json"):
         try:
             data = json.loads(script.string or script.get_text())
@@ -92,6 +156,7 @@ def _extract_article(html, url=""):
         for candidate in candidates:
             if not isinstance(candidate, dict):
                 continue
+            structured_candidates.append(candidate)
             graph = candidate.get("@graph", [])
             if isinstance(graph, list):
                 candidates.extend(item for item in graph if isinstance(item, dict))
@@ -109,17 +174,7 @@ def _extract_article(html, url=""):
     else:
         result["en_title"] = "Click Link to View Original Title"
 
-    # 修正：meta_date 在 else 外部使用，必須預先初始化避免 NameError
-    meta_date = None
-    if structured_article.get("datePublished"):
-        result["pubdate"] = str(structured_article["datePublished"])[:10]
-    else:
-        meta_date = soup.find("meta", property="article:published_time")
-    if not result["pubdate"] and meta_date and meta_date.get("content"):
-        result["pubdate"] = meta_date["content"][:10]
-    elif not result["pubdate"]:
-        date_match = re.search(r"\d{4}[-/]\d{2}[-/]\d{2}", html)
-        result["pubdate"] = date_match.group(0).replace("/", "-") if date_match else ""
+    result["pubdate"] = _extract_published_date(soup, structured_candidates)
 
     text_content = ""
 

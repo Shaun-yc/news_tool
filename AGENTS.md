@@ -87,7 +87,9 @@ REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
 - 所有設定透過環境變數注入，**禁止硬編碼** API URL 或 credentials
 - `url_security.py` 提供 `validate_public_url()` 驗證，所有外部 URL 在 scrape 前必須通過
 - `en_content` 必須保留擷取到的完整文章，不得在 scraper 任意截斷；Excel 單格仍受 32,767 字元上限約束
+- `pubdate` 只能來自高可信發布欄位；不得以整頁第一個日期或 `dateModified` 猜測，缺少可信日期時留白
 - 成功分類必須包含 2～5 個白名單標籤；少於 2 個時不得用預設標籤補位
+- 分類以中文標題與摘要為主，英文原文證據為輔；爬取失敗訊息不得送入分類 Prompt
 - vLLM 回傳無效標籤、`NONE` 或呼叫失敗時標記為「待人工確認」，不中斷整體流程
 - Playwright 須先安裝瀏覽器：`.venv\Scripts\python.exe -m playwright install chromium`
 

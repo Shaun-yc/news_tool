@@ -1,15 +1,16 @@
 # 週新聞彙整系統
 
-正式版 Streamlit 服務。上傳週新聞 Word 檔案後，系統會解析新聞總表與摘要、擷取來源網站資訊、使用 vLLM 產生分類標籤，最後輸出標準 14 欄 Excel。
+週新聞彙整服務，提供 Streamlit 操作介面與 FastAPI API。上傳週新聞 Word 檔案後，系統會解析新聞總表與摘要、擷取來源網站資訊、使用 vLLM 產生分類標籤，最後輸出標準 14 欄 Excel。
 
 ## 功能
 
 - 解析 Word 總表中的新聞標題、摘要與來源網址
 - 擷取來源網站英文標題、發布日期與英文內文
 - 爬蟲先使用 `requests + BeautifulSoup`，失敗或內文太短時使用 Playwright/Chromium fallback
-- 使用內網 vLLM 產生 2 至 5 個新聞分類標籤
-- 產出標準格式 Excel，並標示需人工確認的資料
-- 在畫面顯示處理總數、來源擷取失敗數與分類 fallback 數
+- 根據 Word 內的中文標題與摘要，使用內網 vLLM 產生 1 至 5 個新聞分類標籤
+- 僅接受固定標籤池內的類別；資訊不足、回應無效或模型呼叫失敗時標記「待人工確認」
+- 產出標準格式 Excel，並清楚標示需人工確認的資料
+- 在畫面顯示處理總數、來源擷取失敗數與分類待人工確認數
 - 提供 FastAPI 端點，供 n8n 或其他系統上傳 Word 並下載 Excel
 
 ## 設定
@@ -22,8 +23,8 @@ Copy-Item .env.example .env
 
 | 變數 | 必填 | 預設值 | 說明 |
 | --- | --- | --- | --- |
-| `VLLM_BASE_URL` | 否 | `http://192.168.0.92:8000` | vLLM OpenAI-compatible 服務位址 |
-| `VLLM_MODEL` | 否 | `diffusiongemma-4-26b` | 主模型名稱 |
+| `VLLM_BASE_URL` | 否 | `http://192.168.0.92:8000` | 主 vLLM OpenAI-compatible 服務位址；分類專用位址未設定時使用 |
+| `VLLM_MODEL` | 否 | `diffusiongemma-4-26b` | 主模型名稱；分類專用模型未設定時使用 |
 | `VLLM_TIMEOUT_SECONDS` | 否 | `600` | vLLM 推論逾時秒數 |
 | `VLLM_TEMPERATURE` | 否 | `0` | 模型溫度；分類任務建議維持 0 |
 | `VLLM_MAX_TOKENS` | 否 | `256` | 最大輸出 token 數 |
@@ -41,7 +42,16 @@ git clone https://github.com/Shaun-yc/news_tool.git
 cd news_tool
 ```
 
-此系統需要可連線的 vLLM OpenAI-compatible API。預設範例使用內網位址 `http://192.168.0.92:8000`，請將 `.env` 中的 `VLLM_BASE_URL` 改成自己的 vLLM 服務位址。
+此系統需要可連線的 vLLM OpenAI-compatible API。請依環境修改 `.env` 中的 `VLLM_BASE_URL`；若使用獨立分類模型，也要設定 `CLASSIFY_BASE_URL` 與 `CLASSIFY_MODEL`。
+
+## 分類行為
+
+分類模型只會收到 Word 檔中的中文標題與中文摘要，不會使用爬蟲擷取的英文全文作為分類依據。
+
+- 模型可從固定標籤池選擇 1 至 5 個標籤，並依相關性排序。
+- 程式會移除未知標籤、重複標籤與超過 5 個的項目。
+- 若沒有充分依據，模型應回傳 `NONE`。
+- `NONE`、無有效標籤、API 錯誤或逾時都會輸出「待人工確認」，不會自動補上其他分類。
 
 ## Docker 部署（建議）
 
@@ -121,7 +131,7 @@ API 回傳 Excel 檔案，並在 response headers 附上處理摘要：
 | --- | --- |
 | `X-News-Total-Count` | 總新聞數 |
 | `X-News-Scrape-Failed-Count` | 擷取失敗數 |
-| `X-News-Classification-Fallback-Count` | 分類 fallback 數 |
+| `X-News-Classification-Fallback-Count` | 分類待人工確認數（保留既有 header 名稱以維持相容性） |
 
 ## 測試
 
@@ -143,7 +153,7 @@ services/
   word_parser.py           Word 解析
   scraper.py               新聞網頁擷取
   classifier.py            vLLM 分類
-  summarizer.py            英文全文摘要（繁體中文）
+  summarizer.py            獨立摘要 helper（目前主流程未使用）
   report_service.py        報告組裝
   excel_exporter.py        Excel 匯出
   url_security.py          URL 安全性驗證（SSRF 防護）

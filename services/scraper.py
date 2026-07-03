@@ -161,7 +161,7 @@ def _extract_article(html, url=""):
         if description and description.get("content"):
             text_content = description["content"].strip()
 
-    result["en_content"] = text_content[:4000] or "無法辨識內文段落，請點擊連結查看網頁。"
+    result["en_content"] = text_content or "無法辨識內文段落，請點擊連結查看網頁。"
     result["scrape_succeeded"] = len(text_content) >= MIN_CONTENT_LENGTH
     return result
 

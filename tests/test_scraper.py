@@ -76,6 +76,22 @@ class ScraperTests(unittest.TestCase):
         self.assertEqual(result["pubdate"], "2026-06-14")
         self.assertTrue(result["scrape_succeeded"])
 
+    def test_extract_article_preserves_content_longer_than_4000_characters(self):
+        article_body = ("Complete English article paragraph. " * 200).strip()
+        result = _extract_article(
+            f'''
+            <html><head><script type="application/ld+json">
+            {{"@type":"NewsArticle","headline":"Long article",
+              "datePublished":"2026-06-14T08:00:00Z",
+              "articleBody":"{article_body}"}}
+            </script></head><body></body></html>
+            '''
+        )
+
+        self.assertGreater(len(article_body), 4000)
+        self.assertEqual(result["en_content"], article_body)
+        self.assertTrue(result["scrape_succeeded"])
+
     def test_scrape_article_skips_empty_url(self):
         result = scrape_article(FakeSession(), "")
 

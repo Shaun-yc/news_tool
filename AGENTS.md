@@ -46,7 +46,7 @@ docker compose logs -f
 | `start.sh` | 容器進入點，同時啟動 FastAPI（port 8001）與 Streamlit（port 8501）|
 | `services/config.py` | 設定讀取（環境變數 → `Settings` dataclass） |
 | `services/word_parser.py` | 解析 `.docx`，萃取 `zh_title`、`content`、`source_url` |
-| `services/scraper.py` | Playwright 擷取來源網頁，帶 delay 避免封鎖 |
+| `services/scraper.py` | 擷取來源網頁標題、日期與完整文章內容，必要時使用 Playwright fallback |
 | `services/classifier.py` | 呼叫 vLLM `/v1/chat/completions` 執行分類 |
 | `services/processor.py` | 協調 scrape → classify 流程，回傳 `ProcessingSummary` |
 | `services/report_service.py` | 組裝 Excel 報告（`build_report_from_news_list`） |
@@ -86,6 +86,7 @@ REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
 - 虛擬環境：`.venv/`，使用 `.venv\Scripts\python.exe` 呼叫
 - 所有設定透過環境變數注入，**禁止硬編碼** API URL 或 credentials
 - `url_security.py` 提供 `validate_public_url()` 驗證，所有外部 URL 在 scrape 前必須通過
+- `en_content` 必須保留擷取到的完整文章，不得在 scraper 任意截斷；Excel 單格仍受 32,767 字元上限約束
 - 成功分類必須包含 2～5 個白名單標籤；少於 2 個時不得用預設標籤補位
 - vLLM 回傳無效標籤、`NONE` 或呼叫失敗時標記為「待人工確認」，不中斷整體流程
 - Playwright 須先安裝瀏覽器：`.venv\Scripts\python.exe -m playwright install chromium`

@@ -39,7 +39,7 @@ def normalize_tags(result):
         tag = raw.strip().strip('【】[]「」「」\'"')
         if tag in ALLOWED_TAGS and tag not in tags:
             tags.append(tag)
-    if 1 <= len(tags) <= 5:
+    if 2 <= len(tags) <= 5:
         return ";".join(tags)
     if len(tags) > 5:
         return ";".join(tags[:5])
@@ -71,7 +71,7 @@ def _build_prompt(title, content):
 氣候法制：氣候相關立法、法規制定、氣候訴訟與司法判決。
 
 【任務規則】
-1. 選出 1～5 個最相關標籤，依相關性由高至低排列。
+1. 選出 2～5 個最相關標籤，依相關性由高至低排列。
 2. 只選新聞中有明確依據的標籤，不湊數量。
 3. 只能輸出標籤池內的標籤名稱，一字不差。
 4. 標籤間以半形分號「;」分隔，只輸出一行，不含任何說明或換行。

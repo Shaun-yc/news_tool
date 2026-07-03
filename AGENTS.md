@@ -86,6 +86,7 @@ REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
 - 虛擬環境：`.venv/`，使用 `.venv\Scripts\python.exe` 呼叫
 - 所有設定透過環境變數注入，**禁止硬編碼** API URL 或 credentials
 - `url_security.py` 提供 `validate_public_url()` 驗證，所有外部 URL 在 scrape 前必須通過
+- 成功分類必須包含 2～5 個白名單標籤；少於 2 個時不得用預設標籤補位
 - vLLM 回傳無效標籤、`NONE` 或呼叫失敗時標記為「待人工確認」，不中斷整體流程
 - Playwright 須先安裝瀏覽器：`.venv\Scripts\python.exe -m playwright install chromium`
 

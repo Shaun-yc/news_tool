@@ -5,6 +5,7 @@ import requests
 
 
 REVIEW_REQUIRED = "待人工確認"
+MAX_ENGLISH_EVIDENCE_CHARS = 6000
 ALLOWED_TAGS = {
     "溫室氣體減量",
     "氣候變遷調適",
@@ -46,8 +47,18 @@ def normalize_tags(result):
     return None
 
 
-def _build_prompt(title, content):
-    return f"""你是嚴謹的氣候政策新聞分類器。請根據新聞標題與摘要，從下方標籤池選出最能代表核心內容的標籤。
+def _select_english_evidence(english_content):
+    content = (english_content or "").strip()
+    if len(content) <= MAX_ENGLISH_EVIDENCE_CHARS:
+        return content
+    lead_length = 4500
+    tail_length = MAX_ENGLISH_EVIDENCE_CHARS - lead_length
+    return f"{content[:lead_length]}\n[中段省略]\n{content[-tail_length:]}"
+
+
+def _build_prompt(title, content, english_content=""):
+    english_evidence = _select_english_evidence(english_content)
+    return f"""你是嚴謹的氣候政策新聞分類器。請根據中文標題、中文摘要與英文原文證據，從下方標籤池選出最能代表核心內容的標籤。
 
 【標籤池（共 16 個）】
 溫室氣體減量, 氣候變遷調適, 公約會議及進展, 各國減碳目標(NDC), 碳定價, 總量管制排放交易, 碳信用額度, 溫室氣體排放清冊, 碳邊境調整機制, 國際碳權合作, 碳足跡, 綠色成長, 淨零科技, 氣候變遷科學報告, 氣候變遷教育, 氣候法制
@@ -75,8 +86,10 @@ def _build_prompt(title, content):
 2. 只選新聞中有明確依據的標籤，不湊數量。
 3. 只能輸出標籤池內的標籤名稱，一字不差。
 4. 標籤間以半形分號「;」分隔，只輸出一行，不含任何說明或換行。
-5. 若標題與摘要不足以支持任何標籤，輸出 NONE。
+5. 若提供的內容不足以支持至少 2 個標籤，輸出 NONE。
 6. 不得僅因新聞屬於氣候議題，就預設選擇「溫室氣體減量」或「碳定價」。
+7. 中文標題與中文摘要是主要判斷依據；英文原文證據僅用於交叉驗證與補充細節。
+8. 每個標籤都必須能在中文標題、中文摘要或英文原文證據中找到明確依據，不得根據原文中的次要背景議題加標籤。
 
 【範例】
 標題：歐盟宣布碳邊境調整機制正式啟動
@@ -84,8 +97,9 @@ def _build_prompt(title, content):
 輸出：碳邊境調整機制;碳足跡;氣候法制
 
 【待分類新聞】
-標題：{title}
-摘要：{content}
+中文標題：{title}
+中文摘要：{content}
+英文原文證據：{english_evidence or "（無可用英文原文）"}
 輸出："""
 
 
@@ -124,9 +138,10 @@ def classify_news(
     vllm_timeout,
     vllm_temperature,
     vllm_max_tokens,
+    english_content="",
 ):
     """Return tags and whether vLLM produced a valid classification."""
-    prompt = _build_prompt(title, content)
+    prompt = _build_prompt(title, content, english_content)
     try:
         result = normalize_tags(
             _classify_with_vllm(

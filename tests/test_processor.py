@@ -69,6 +69,7 @@ class ProcessorTests(unittest.TestCase):
             300,
             0,
             64,
+            english_content="",
         )
 
 

@@ -1,11 +1,13 @@
 import logging
 import re
+import time
 
 import requests
 
 
 REVIEW_REQUIRED = "待人工確認"
 MAX_ENGLISH_EVIDENCE_CHARS = 6000
+VLLM_UNAVAILABLE_COOLDOWN_SECONDS = 300
 ALLOWED_TAGS = {
     "溫室氣體減量",
     "氣候變遷調適",
@@ -25,6 +27,7 @@ ALLOWED_TAGS = {
     "氣候法制",
 }
 logger = logging.getLogger(__name__)
+_vllm_unavailable_until = {}
 
 
 def normalize_tags(result):
@@ -130,6 +133,25 @@ def _classify_with_vllm(base_url, model_name, prompt, timeout, temperature, max_
     return response.json()["choices"][0]["message"]["content"]
 
 
+def _vllm_key(base_url):
+    return (base_url or "").rstrip("/")
+
+
+def _vllm_unavailable_seconds_remaining(base_url):
+    unavailable_until = _vllm_unavailable_until.get(_vllm_key(base_url), 0)
+    return max(0, unavailable_until - time.monotonic())
+
+
+def _mark_vllm_unavailable(base_url):
+    _vllm_unavailable_until[_vllm_key(base_url)] = (
+        time.monotonic() + VLLM_UNAVAILABLE_COOLDOWN_SECONDS
+    )
+
+
+def _mark_vllm_available(base_url):
+    _vllm_unavailable_until.pop(_vllm_key(base_url), None)
+
+
 def classify_news(
     title,
     content,
@@ -141,6 +163,15 @@ def classify_news(
     english_content="",
 ):
     """Return tags and whether vLLM produced a valid classification."""
+    remaining_seconds = _vllm_unavailable_seconds_remaining(vllm_base_url)
+    if remaining_seconds > 0:
+        logger.warning(
+            "Skipping vLLM classification for title: %s; service temporarily unavailable for %.0f more seconds",
+            title,
+            remaining_seconds,
+        )
+        return REVIEW_REQUIRED, False
+
     prompt = _build_prompt(title, content, english_content)
     try:
         result = normalize_tags(
@@ -154,8 +185,16 @@ def classify_news(
             )
         )
         if result:
+            _mark_vllm_available(vllm_base_url)
             return result, True
         logger.warning("vLLM returned invalid tags for title: %s", title)
+    except requests.RequestException:
+        _mark_vllm_unavailable(vllm_base_url)
+        logger.exception(
+            "vLLM classification service unavailable for title: %s; pausing attempts for %s seconds",
+            title,
+            VLLM_UNAVAILABLE_COOLDOWN_SECONDS,
+        )
     except Exception:
         logger.exception("vLLM classification failed for title: %s", title)
 

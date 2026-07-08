@@ -1,18 +1,28 @@
 import unittest
 from unittest.mock import patch
 
+import requests
+
 from services.classifier import (
     MAX_ENGLISH_EVIDENCE_CHARS,
     REVIEW_REQUIRED,
+    VLLM_UNAVAILABLE_COOLDOWN_SECONDS,
     _build_prompt,
     _classify_with_vllm,
     _select_english_evidence,
+    _vllm_unavailable_until,
     classify_news,
     normalize_tags,
 )
 
 
 class ClassifierTests(unittest.TestCase):
+    def setUp(self):
+        _vllm_unavailable_until.clear()
+
+    def tearDown(self):
+        _vllm_unavailable_until.clear()
+
     def test_normalize_tags_accepts_allowed_unique_tags(self):
         self.assertEqual(
             normalize_tags("碳定價; 氣候法制;碳定價"),
@@ -131,6 +141,82 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(tags, REVIEW_REQUIRED)
         self.assertFalse(succeeded)
         self.assertIn("vLLM classification failed for title: 標題", logs.output[0])
+
+    @patch("services.classifier.time.monotonic")
+    @patch("services.classifier._classify_with_vllm")
+    def test_classify_news_opens_cooldown_when_vllm_service_is_unavailable(
+        self, vllm, monotonic
+    ):
+        monotonic.return_value = 100
+        vllm.side_effect = requests.ConnectionError("connection refused")
+
+        with self.assertLogs("services.classifier", level="ERROR") as logs:
+            tags, succeeded = classify_news(
+                "標題",
+                "摘要",
+                "http://192.168.0.92:8001",
+                "gemma-4-e4b",
+                300,
+                0,
+                256,
+            )
+
+        self.assertEqual(tags, REVIEW_REQUIRED)
+        self.assertFalse(succeeded)
+        self.assertEqual(vllm.call_count, 1)
+        self.assertIn("service unavailable", logs.output[0])
+
+        with self.assertLogs("services.classifier", level="WARNING") as logs:
+            tags, succeeded = classify_news(
+                "第二篇",
+                "摘要",
+                "http://192.168.0.92:8001",
+                "gemma-4-e4b",
+                300,
+                0,
+                256,
+            )
+
+        self.assertEqual(tags, REVIEW_REQUIRED)
+        self.assertFalse(succeeded)
+        self.assertEqual(vllm.call_count, 1)
+        self.assertIn("Skipping vLLM classification", logs.output[0])
+
+    @patch("services.classifier.time.monotonic")
+    @patch("services.classifier._classify_with_vllm")
+    def test_classify_news_retries_after_vllm_cooldown_expires(self, vllm, monotonic):
+        monotonic.side_effect = [
+            100,
+            100,
+            100 + VLLM_UNAVAILABLE_COOLDOWN_SECONDS + 1,
+        ]
+        vllm.side_effect = [
+            requests.ConnectionError("connection refused"),
+            "碳定價;氣候法制",
+        ]
+
+        classify_news(
+            "標題",
+            "摘要",
+            "http://192.168.0.92:8001",
+            "gemma-4-e4b",
+            300,
+            0,
+            256,
+        )
+        tags, succeeded = classify_news(
+            "冷卻後",
+            "摘要",
+            "http://192.168.0.92:8001",
+            "gemma-4-e4b",
+            300,
+            0,
+            256,
+        )
+
+        self.assertEqual(tags, "碳定價;氣候法制")
+        self.assertTrue(succeeded)
+        self.assertEqual(vllm.call_count, 2)
 
     @patch("services.classifier.requests.post")
     def test_vllm_request_uses_chat_completions(self, post):

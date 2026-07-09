@@ -1,5 +1,7 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from services.config import get_settings
@@ -19,7 +21,7 @@ class ConfigTests(unittest.TestCase):
             },
             clear=True,
         ):
-            settings = get_settings()
+            settings = get_settings(env_file=None)
 
         self.assertEqual(settings.vllm_base_url, "http://localhost:8000")
         self.assertEqual(settings.vllm_model, "diffusiongemma-4-26b")
@@ -29,6 +31,31 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.classify_delay_seconds, 3.5)
         self.assertEqual(settings.request_timeout_seconds, 7.0)
         self.assertEqual(settings.vllm_timeout_seconds, 600.0)
+
+    def test_get_settings_loads_local_env_without_overriding_process_env(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / ".env"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "VLLM_BASE_URL=http://192.168.0.92:8000",
+                        "CLASSIFY_BASE_URL=http://192.168.0.92:8001",
+                        "VLLM_MODEL=local-main",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.dict(
+                os.environ,
+                {"VLLM_BASE_URL": "http://configured-host:9000"},
+                clear=True,
+            ):
+                settings = get_settings(env_file=env_file)
+
+        self.assertEqual(settings.vllm_base_url, "http://configured-host:9000")
+        self.assertEqual(settings.classify_base_url, "http://192.168.0.92:8001")
+        self.assertEqual(settings.vllm_model, "local-main")
 
 
 if __name__ == "__main__":

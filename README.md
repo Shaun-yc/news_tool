@@ -25,7 +25,7 @@ Copy-Item .env.example .env
 
 | 變數 | 必填 | 預設值 | 說明 |
 | --- | --- | --- | --- |
-| `VLLM_BASE_URL` | 否 | `http://192.168.0.92:8000` | 主 vLLM OpenAI-compatible 服務位址；分類專用位址未設定時使用 |
+| `VLLM_BASE_URL` | 否 | `http://localhost:8000` | 主 vLLM OpenAI-compatible 服務位址；分類專用位址未設定時使用 |
 | `VLLM_MODEL` | 否 | `diffusiongemma-4-26b` | 主模型名稱；分類專用模型未設定時使用 |
 | `VLLM_TIMEOUT_SECONDS` | 否 | `600` | vLLM 推論逾時秒數 |
 | `VLLM_TEMPERATURE` | 否 | `0` | 模型溫度；分類任務建議維持 0 |

@@ -21,7 +21,7 @@ class ConfigTests(unittest.TestCase):
         ):
             settings = get_settings()
 
-        self.assertEqual(settings.vllm_base_url, "http://192.168.0.92:8000")
+        self.assertEqual(settings.vllm_base_url, "http://localhost:8000")
         self.assertEqual(settings.vllm_model, "diffusiongemma-4-26b")
         self.assertEqual(settings.vllm_temperature, 0.0)
         self.assertEqual(settings.vllm_max_tokens, 256)

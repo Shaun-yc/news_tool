@@ -60,14 +60,14 @@ docker compose logs -f
 
 ```
 # 主模型（scrape 摘要 / 分類）
-VLLM_BASE_URL=http://192.168.0.92:8000     # vLLM 服務位址
+VLLM_BASE_URL=http://localhost:8000        # vLLM 服務位址
 VLLM_MODEL=diffusiongemma-4-26b            # 主模型名稱
 VLLM_TIMEOUT_SECONDS=600                   # 請求 timeout（秒）
 VLLM_TEMPERATURE=0                         # 生成溫度，0 = 確定性輸出
 VLLM_MAX_TOKENS=256                        # 最大輸出 token
 
 # 分類專用模型（未設定時退回主模型）
-CLASSIFY_BASE_URL=http://192.168.0.92:8001 # 分類模型位址
+CLASSIFY_BASE_URL=http://localhost:8001    # 分類模型位址
 CLASSIFY_MODEL=gemma-4-e4b                 # 分類模型名稱
 CLASSIFY_MAX_TOKENS=64                     # 分類輸出最大 token
 

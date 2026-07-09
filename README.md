@@ -23,6 +23,8 @@
 Copy-Item .env.example .env
 ```
 
+設定讀取順序為：已存在的環境變數優先，其次自動讀取專案根目錄的 `.env`，最後才使用公開安全的 localhost 預設值。因此本機若需要呼叫遠端 vLLM，請把實際位址放在未提交的 `.env` 中。
+
 | 變數 | 必填 | 預設值 | 說明 |
 | --- | --- | --- | --- |
 | `VLLM_BASE_URL` | 否 | `http://localhost:8000` | 主 vLLM OpenAI-compatible 服務位址；分類專用位址未設定時使用 |

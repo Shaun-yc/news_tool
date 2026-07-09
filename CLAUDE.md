@@ -77,6 +77,8 @@ CLASSIFY_DELAY_SECONDS=3.5                 # 每次分類間隔（秒）
 REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
 ```
 
+設定讀取順序為：已存在的環境變數優先，其次自動讀取專案根目錄的 `.env`，最後才使用公開安全的 localhost 預設值。實際內網或私有 vLLM 位址應放在未提交的 `.env` 中。
+
 虛擬環境路徑：`.venv/`（Python 3.x，已安裝 requirements.txt）
 
 ## 關鍵慣例
@@ -84,7 +86,7 @@ REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
 - Python 版本：3.11+
 - 套件管理：pip + `requirements.txt`（無 pyproject.toml）
 - 虛擬環境：`.venv/`，使用 `.venv\Scripts\python.exe` 呼叫
-- 所有設定透過環境變數注入，**禁止硬編碼** API URL 或 credentials
+- 所有設定透過環境變數或未提交的 `.env` 注入，**禁止硬編碼** API URL 或 credentials
 - `url_security.py` 提供 `is_safe_url()` 驗證，所有外部 URL 在 scrape 前必須通過
 - vLLM 呼叫失敗時 fallback 預設分類標籤，不中斷整體流程
 - Playwright 須先安裝瀏覽器：`.venv\Scripts\python.exe -m playwright install chromium`

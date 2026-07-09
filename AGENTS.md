@@ -81,6 +81,8 @@ CLASSIFY_DELAY_SECONDS=3.5                 # 每次分類間隔（秒）
 REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
 ```
 
+設定讀取順序為：已存在的環境變數優先，其次自動讀取專案根目錄的 `.env`，最後才使用公開安全的 localhost 預設值。實際內網或私有 vLLM 位址應放在未提交的 `.env` 中。
+
 虛擬環境路徑：`.venv/`（Python 3.x，已安裝 requirements.txt）
 
 ## 關鍵慣例
@@ -88,7 +90,7 @@ REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
 - Python 版本：3.11+
 - 套件管理：pip + `requirements.txt`（無 pyproject.toml）
 - 虛擬環境：`.venv/`，使用 `.venv\Scripts\python.exe` 呼叫
-- 所有設定透過環境變數注入，**原則上禁止硬編碼** API URL 或 credentials；但 `services/config.py` 對 `VLLM_BASE_URL`、`VLLM_MODEL`、`CLASSIFY_BASE_URL`、`CLASSIFY_MODEL` 有 fallback 預設值（從 `.env.example` 而來），若無 `.env` 時會使用這些預設
+- 所有設定透過環境變數或未提交的 `.env` 注入，**原則上禁止硬編碼** API URL 或 credentials；但 `services/config.py` 對 `VLLM_BASE_URL`、`VLLM_MODEL`、`CLASSIFY_BASE_URL`、`CLASSIFY_MODEL` 有 fallback 預設值（從 `.env.example` 而來），若無 `.env` 時會使用這些預設
 - `url_security.py` 提供 `validate_public_url()` 驗證，所有外部 URL 在 scrape 前必須通過
 - `en_content` 必須保留擷取到的完整文章，不得在 scraper 任意截斷；Excel 單格仍受 32,767 字元上限約束
 - `pubdate` 只能來自高可信發布欄位；不得以整頁第一個日期或 `dateModified` 猜測，缺少可信日期時留白

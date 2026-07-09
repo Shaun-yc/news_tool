@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,25 @@ def _get_int(name, default, minimum=0):
     return value if value >= minimum else default
 
 
-def get_settings():
+def _load_env_file(path=".env"):
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key:
+            os.environ.setdefault(key, value.strip().strip("\"'"))
+
+
+def get_settings(env_file=".env"):
+    if env_file:
+        _load_env_file(env_file)
+
     main_url = os.getenv("VLLM_BASE_URL") or "http://localhost:8000"
     main_model = os.getenv("VLLM_MODEL") or "diffusiongemma-4-26b"
     return Settings(

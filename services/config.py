@@ -35,7 +35,7 @@ def _get_int(name, default, minimum=0):
 
 
 def get_settings():
-    main_url = os.getenv("VLLM_BASE_URL") or "http://192.168.0.92:8000"
+    main_url = os.getenv("VLLM_BASE_URL") or "http://localhost:8000"
     main_model = os.getenv("VLLM_MODEL") or "diffusiongemma-4-26b"
     return Settings(
         vllm_base_url=main_url,

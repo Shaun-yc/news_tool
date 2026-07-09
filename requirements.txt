@@ -6,5 +6,5 @@ openpyxl>=3.1,<4
 requests>=2.31,<3
 beautifulsoup4>=4.12,<5
 python-docx>=1.1,<2
-playwright>=1.50,<2
+playwright>=1.61.0,<2
 trafilatura>=1.12,<2

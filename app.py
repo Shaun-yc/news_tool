@@ -20,10 +20,11 @@ st.set_page_config(page_title="週新聞彙整系統", page_icon="📰", layout=
 
 def show_processing_summary(summary):
     st.subheader("處理摘要")
-    columns = st.columns(3)
+    columns = st.columns(4)
     columns[0].metric("新聞總數", summary.total_count)
     columns[1].metric("來源擷取失敗", summary.scrape_failed_count)
     columns[2].metric("分類待人工確認", summary.classification_fallback_count)
+    columns[3].metric("摘要已對齊分類", summary.summary_aligned_count)
 
     if summary.scrape_failed_count:
         st.warning("部分來源網站無法自動擷取，Excel 已保留來源網址與人工確認提示。")

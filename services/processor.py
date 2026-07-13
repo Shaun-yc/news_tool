@@ -1,18 +1,21 @@
+import logging
 from dataclasses import dataclass
 import time
 
 import requests
 
-from services.classifier import classify_news
+from services.classifier import align_summary_to_tags, classify_news
 from services.config import Settings
 from services.scraper import scrape_article
 
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ProcessingSummary:
     total_count: int
     scrape_failed_count: int
     classification_fallback_count: int
+    summary_aligned_count: int = 0
 
 
 def process_news(
@@ -27,6 +30,9 @@ def process_news(
     total_count = len(news_list)
     scrape_failed_count = 0
     classification_fallback_count = 0
+    summary_aligned_count = 0
+
+    logger.info("Weekly news processing started: total=%s", total_count)
 
     with session_factory() as session:
         for index, news in enumerate(news_list, start=1):
@@ -35,6 +41,14 @@ def process_news(
             news.update(scraped)
             if not scraped["scrape_succeeded"]:
                 scrape_failed_count += 1
+            logger.info(
+                "Scrape completed: index=%s/%s success=%s content_chars=%s url=%s",
+                index,
+                total_count,
+                scraped["scrape_succeeded"],
+                len(scraped.get("en_content", "")),
+                news["source_url"],
+            )
             if index < total_count:
                 sleep(settings.scrape_delay_seconds)
 
@@ -54,11 +68,42 @@ def process_news(
         news["classification_succeeded"] = succeeded
         if not succeeded:
             classification_fallback_count += 1
+        else:
+            aligned_content, aligned = align_summary_to_tags(
+                news["zh_title"],
+                news["content"],
+                tags,
+                settings.vllm_base_url,
+                settings.vllm_model,
+                settings.vllm_timeout_seconds,
+                settings.vllm_temperature,
+                settings.summary_align_max_tokens,
+                english_content=news.get("en_content", "") if news.get("scrape_succeeded") else "",
+            )
+            news["content"] = aligned_content
+            summary_aligned_count += int(aligned)
+        logger.info(
+            "Classification completed: index=%s/%s success=%s tag_count=%s",
+            index,
+            total_count,
+            succeeded,
+            len(tags.split(";")) if succeeded else 0,
+        )
         if index < total_count:
             sleep(settings.classify_delay_seconds)
 
-    return ProcessingSummary(
+    summary = ProcessingSummary(
         total_count=total_count,
         scrape_failed_count=scrape_failed_count,
         classification_fallback_count=classification_fallback_count,
+        summary_aligned_count=summary_aligned_count,
     )
+    logger.info(
+        "Weekly news processing completed: total=%s scrape_failed=%s "
+        "classification_fallback=%s summary_aligned=%s",
+        summary.total_count,
+        summary.scrape_failed_count,
+        summary.classification_fallback_count,
+        summary.summary_aligned_count,
+    )
+    return summary

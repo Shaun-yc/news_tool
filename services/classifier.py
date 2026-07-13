@@ -7,6 +7,7 @@ import requests
 
 REVIEW_REQUIRED = "待人工確認"
 MAX_ENGLISH_EVIDENCE_CHARS = 6000
+SUMMARY_ALIGNMENT_KEEP_ORIGINAL = "KEEP_ORIGINAL"
 VLLM_UNAVAILABLE_COOLDOWN_SECONDS = 300
 ALLOWED_TAGS = {
     "溫室氣體減量",
@@ -106,6 +107,31 @@ def _build_prompt(title, content, english_content=""):
 輸出："""
 
 
+def _build_summary_alignment_prompt(title, content, tags, english_content=""):
+    english_evidence = _select_english_evidence(english_content)
+    return f"""你是嚴謹的繁體中文新聞編輯。請在不改變事實的前提下，修訂中文摘要，使其更清楚呈現新聞核心與既有分類的明確依據。
+
+【固定分類標籤】
+{tags}
+
+【嚴格規則】
+1. 分類標籤已固定，不得更名、刪減、增加、重排或在輸出中列出標籤。
+2. 只能使用原中文摘要或英文原文證據中可直接支持的事實；不得補充推測、背景常識或原文沒有的細節。
+3. 若任一固定標籤找不到足夠事實依據，僅輸出 {SUMMARY_ALIGNMENT_KEEP_ORIGINAL}。
+4. 保留原摘要的核心事實、主體、時間與數字；使用繁體中文寫成一段 120 至 500 字摘要。
+5. 只輸出修訂後摘要或 {SUMMARY_ALIGNMENT_KEEP_ORIGINAL}，不要說明。
+
+【新聞標題】
+{title}
+
+【原中文摘要】
+{content}
+
+【英文原文證據】
+{english_evidence or "（無可用英文原文）"}
+"""
+
+
 def _classify_with_vllm(base_url, model_name, prompt, timeout, temperature, max_tokens):
     response = requests.post(
         f"{base_url.rstrip('/')}/v1/chat/completions",
@@ -131,6 +157,59 @@ def _classify_with_vllm(base_url, model_name, prompt, timeout, temperature, max_
     )
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
+
+
+def align_summary_to_tags(
+    title,
+    content,
+    tags,
+    vllm_base_url,
+    vllm_model,
+    vllm_timeout,
+    vllm_temperature,
+    vllm_max_tokens,
+    english_content="",
+):
+    """Revise a Chinese summary only when fixed tags have source-backed evidence."""
+    if not content or not content.strip() or tags == REVIEW_REQUIRED:
+        return content, False
+
+    prompt = _build_summary_alignment_prompt(title, content, tags, english_content)
+    try:
+        response = requests.post(
+            f"{vllm_base_url.rstrip('/')}/v1/chat/completions",
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": vllm_model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是保守的繁體中文新聞編輯。絕不杜撰、推論或修改固定分類標籤；"
+                            "當證據不足時必須輸出 KEEP_ORIGINAL。"
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": vllm_temperature,
+                "max_tokens": vllm_max_tokens,
+            },
+            timeout=vllm_timeout,
+        )
+        response.raise_for_status()
+        aligned_summary = response.json()["choices"][0]["message"]["content"].strip()
+    except Exception:
+        logger.exception("Summary alignment failed for title: %s", title)
+        return content, False
+
+    if (
+        not aligned_summary
+        or aligned_summary == SUMMARY_ALIGNMENT_KEEP_ORIGINAL
+        or len(aligned_summary) < 120
+        or len(aligned_summary) > 500
+    ):
+        return content, False
+    return aligned_summary, aligned_summary != content
 
 
 def _vllm_key(base_url):

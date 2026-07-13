@@ -17,6 +17,7 @@ class Settings:
     classify_base_url: str
     classify_model: str
     classify_max_tokens: int
+    summary_align_max_tokens: int
 
 
 def _get_float(name, default, minimum=0):
@@ -68,4 +69,5 @@ def get_settings(env_file=".env"):
         classify_base_url=os.getenv("CLASSIFY_BASE_URL") or main_url,
         classify_model=os.getenv("CLASSIFY_MODEL") or main_model,
         classify_max_tokens=_get_int("CLASSIFY_MAX_TOKENS", 64, minimum=16),
+        summary_align_max_tokens=_get_int("SUMMARY_ALIGN_MAX_TOKENS", 384, minimum=64),
     )

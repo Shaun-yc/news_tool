@@ -125,6 +125,75 @@ class ScraperTests(unittest.TestCase):
 
         self.assertEqual(result["pubdate"], "2026-07-02")
 
+    def test_extract_article_rejects_block_page_even_when_text_is_long(self):
+        result = _extract_article(
+            """
+            <html><head><title>Just a moment...</title></head><body>
+              <p>Checking your browser before accessing this site.</p>
+              <p>This process is automatic. Verification successful. Waiting for the website
+              to respond. Enable JavaScript and cookies to continue. This extra text makes the
+              response longer than the normal minimum article content threshold.</p>
+            </body></html>
+            """,
+            url="https://www.example.com/protected",
+        )
+
+        self.assertFalse(result["scrape_succeeded"])
+        self.assertEqual(result["en_title"], "")
+        self.assertIn("驗證或拒絕存取", result["en_content"])
+
+    def test_extract_article_prefers_open_graph_title(self):
+        result = _extract_article(
+            """
+            <html><head>
+              <title>Publisher brand - Site</title>
+              <meta property="og:title" content="Complete article headline: policy update">
+            </head><body><article>
+              <h1>Short page heading</h1>
+              <p>This article contains enough meaningful policy reporting to pass the minimum
+              content threshold, while confirming that the Open Graph headline is preferred.</p>
+            </article></body></html>
+            """
+        )
+
+        self.assertEqual(result["en_title"], "Complete article headline: policy update")
+
+    def test_extract_article_prefers_h1_over_document_title(self):
+        result = _extract_article(
+            """
+            <html><head><title>Dentons - Global legal insights</title></head><body><main>
+              <h1>Carbon market reform in Quebec</h1>
+              <p>This article contains enough meaningful legal and carbon market reporting to
+              pass the minimum content threshold and verify the page heading selection order.</p>
+            </main></body></html>
+            """
+        )
+
+        self.assertEqual(result["en_title"], "Carbon market reform in Quebec")
+
+    def test_extract_article_removes_navigation_and_template_noise(self):
+        result = _extract_article(
+            """
+            <html><head><title>Market update - Publisher</title></head><body>
+              <header><p>Methodology Contact us Support Login Share Prices Stock Tips</p></header>
+              <nav><p>Home Markets News Subscribe Account Settings</p></nav>
+              <main><article><h1>Market update</h1>
+                <p>{{suggestionHead.categoryName}} The carbon market authority published a
+                detailed reform proposal covering allowance supply and compliance obligations.</p>
+                <p>The proposal also explains implementation timing, stakeholder consultation,
+                and safeguards intended to preserve market integrity and investment certainty.</p>
+              </article></main>
+              <footer><p>Privacy Terms Contact us Newsletter Login</p></footer>
+            </body></html>
+            """
+        )
+
+        self.assertTrue(result["scrape_succeeded"])
+        self.assertNotIn("Methodology Contact us", result["en_content"])
+        self.assertNotIn("suggestionHead", result["en_content"])
+        self.assertNotIn("Privacy Terms", result["en_content"])
+        self.assertIn("detailed reform proposal", result["en_content"])
+
     def test_scrape_article_skips_empty_url(self):
         result = scrape_article(FakeSession(), "")
 
@@ -179,7 +248,7 @@ class ScraperTests(unittest.TestCase):
         result = scrape_article(FakeSession(), "https://www.example.com/news/1")
 
         self.assertFalse(result["scrape_succeeded"])
-        self.assertEqual(result["en_title"], "Fetch Failed (請手動確認)")
+        self.assertEqual(result["en_title"], "")
         self.assertEqual(result["pubdate"], "")
         self.assertEqual(result["en_content"], "無法自動爬取原文，請手動確認來源網址。")
 

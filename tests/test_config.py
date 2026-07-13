@@ -27,6 +27,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.vllm_model, "diffusiongemma-4-26b")
         self.assertEqual(settings.vllm_temperature, 0.0)
         self.assertEqual(settings.vllm_max_tokens, 256)
+        self.assertEqual(settings.summary_align_max_tokens, 384)
         self.assertEqual(settings.scrape_delay_seconds, 0.8)
         self.assertEqual(settings.classify_delay_seconds, 3.5)
         self.assertEqual(settings.request_timeout_seconds, 7.0)

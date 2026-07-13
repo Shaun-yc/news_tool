@@ -12,8 +12,35 @@ from services.url_security import validate_public_url
 
 
 logger = logging.getLogger(__name__)
+logging.getLogger("trafilatura").setLevel(logging.CRITICAL)
 MAX_REDIRECTS = 5
 MIN_CONTENT_LENGTH = 120
+_BLOCK_PAGE_TITLE_MARKERS = (
+    "just a moment",
+    "access denied",
+    "attention required",
+    "security verification",
+)
+_BLOCK_PAGE_TEXT_MARKERS = (
+    "checking your browser before accessing",
+    "performing security verification",
+    "enable javascript and cookies to continue",
+    "verify you are not a bot",
+    "protect against malicious bots",
+    "you don't have permission to access",
+)
+_CONTENT_NOISE_TAGS = (
+    "nav",
+    "header",
+    "footer",
+    "aside",
+    "form",
+    "dialog",
+    "noscript",
+    "script",
+    "style",
+    "svg",
+)
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -59,11 +86,62 @@ _COOKIE_ACCEPT_SELECTORS = [
 
 def _failure_result(message="無法自動爬取原文，請手動確認來源網址。"):
     return {
-        "en_title": "Fetch Failed (請手動確認)",
+        "en_title": "",
         "pubdate": "",
         "en_content": message,
         "scrape_succeeded": False,
     }
+
+
+def _is_block_page(soup):
+    title = soup.title.get_text(" ", strip=True).lower() if soup.title else ""
+    page_text = soup.get_text(" ", strip=True).lower()
+    return any(marker in title for marker in _BLOCK_PAGE_TITLE_MARKERS) or any(
+        marker in page_text for marker in _BLOCK_PAGE_TEXT_MARKERS
+    )
+
+
+def _extract_page_title(soup, structured_article):
+    structured_headline = structured_article.get("headline")
+    if structured_headline:
+        return str(structured_headline).strip()
+
+    for attributes in ({"property": "og:title"}, {"name": "twitter:title"}):
+        element = soup.find("meta", attrs=attributes)
+        if element and element.get("content"):
+            return element["content"].strip()
+
+    heading = soup.find("h1")
+    if heading:
+        heading_text = heading.get_text(" ", strip=True)
+        if heading_text:
+            return heading_text
+
+    if soup.title:
+        raw_title = soup.title.get_text(" ", strip=True)
+        title_parts = [part.strip() for part in re.split(r"\s+(?:[-|–—])\s+", raw_title) if part.strip()]
+        if title_parts:
+            return max(title_parts, key=len)
+    return ""
+
+
+def _prepare_content_soup(soup):
+    content_soup = BeautifulSoup(str(soup), "html.parser")
+    for element in content_soup.find_all(_CONTENT_NOISE_TAGS):
+        element.decompose()
+    for text_node in content_soup.find_all(string=re.compile(r"{{.*?}}")):
+        cleaned = re.sub(r"{{.*?}}", "", str(text_node))
+        text_node.replace_with(cleaned)
+    return content_soup
+
+
+def _clean_article_text(text):
+    cleaned_lines = []
+    for line in str(text or "").splitlines():
+        cleaned = re.sub(r"{{.*?}}", "", line).strip()
+        if cleaned:
+            cleaned_lines.append(cleaned)
+    return "\n".join(cleaned_lines)
 
 
 def _get_public_response(session, url, headers, timeout):
@@ -145,6 +223,10 @@ def _extract_article(html, url=""):
     soup = BeautifulSoup(html, "html.parser")
     result = {"en_title": "", "pubdate": "", "en_content": "", "scrape_succeeded": False}
 
+    if _is_block_page(soup):
+        logger.warning("Blocked or verification page detected for URL %s", url or "<unknown>")
+        return _failure_result("來源網站顯示驗證或拒絕存取頁面，請手動確認原文。")
+
     structured_articles = []
     structured_candidates = []
     for script in soup.find_all("script", type="application/ld+json"):
@@ -165,48 +247,44 @@ def _extract_article(html, url=""):
 
     structured_article = structured_articles[0] if structured_articles else {}
 
-    if structured_article.get("headline"):
-        result["en_title"] = str(structured_article["headline"]).strip()
-    elif soup.title and soup.title.string:
-        result["en_title"] = re.split(r" - | \| |: ", soup.title.string.strip())[0]
-    elif soup.find("h1"):
-        result["en_title"] = soup.find("h1").text.strip()
-    else:
-        result["en_title"] = "Click Link to View Original Title"
+    result["en_title"] = _extract_page_title(soup, structured_article)
 
     result["pubdate"] = _extract_published_date(soup, structured_candidates)
+    content_soup = _prepare_content_soup(soup)
+    cleaned_html = str(content_soup)
 
     text_content = ""
 
     # 優先：JSON-LD articleBody（最完整）
     if structured_article.get("articleBody"):
-        text_content = str(structured_article["articleBody"]).strip()
+        text_content = _clean_article_text(structured_article["articleBody"])
 
     # 次選：trafilatura（處理 div 段落、JS 渲染後的各類版面）
     if len(text_content) < MIN_CONTENT_LENGTH:
         try:
             extracted = trafilatura.extract(
-                html,
+                cleaned_html,
                 url=url or None,
                 include_comments=False,
                 include_tables=False,
                 favor_recall=True,
             )
-            if extracted and len(extracted) >= MIN_CONTENT_LENGTH:
+            extracted = _clean_article_text(extracted)
+            if len(extracted) >= MIN_CONTENT_LENGTH:
                 text_content = extracted
         except Exception:
             pass
 
     # 備用：BeautifulSoup 抓 <p> 段落
     if len(text_content) < MIN_CONTENT_LENGTH:
-        article_root = soup.find("article") or soup.find("main")
-        paragraphs = article_root.find_all("p") if article_root else soup.find_all("p")
+        article_root = content_soup.find("article") or content_soup.find("main")
+        paragraphs = article_root.find_all("p") if article_root else content_soup.find_all("p")
         para_texts = [
             p.get_text(" ", strip=True)
             for p in paragraphs
             if len(p.get_text(" ", strip=True)) > 30
         ]
-        text_content = " ".join(para_texts)
+        text_content = _clean_article_text("\n".join(para_texts))
 
     # 最後：meta description 兜底
     if len(text_content) < MIN_CONTENT_LENGTH:
@@ -214,10 +292,13 @@ def _extract_article(html, url=""):
             "meta", property="og:description"
         )
         if description and description.get("content"):
-            text_content = description["content"].strip()
+            text_content = _clean_article_text(description["content"])
 
+    text_content = _clean_article_text(text_content)
     result["en_content"] = text_content or "無法辨識內文段落，請點擊連結查看網頁。"
     result["scrape_succeeded"] = len(text_content) >= MIN_CONTENT_LENGTH
+    if not result["scrape_succeeded"]:
+        result["en_title"] = ""
     return result
 
 

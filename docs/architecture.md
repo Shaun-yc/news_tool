@@ -38,8 +38,9 @@ Configuration
 ```text
 app.py
   -> word_parser.parse_word_news(uploaded_file)
-  -> report_service.build_report_from_news_list(news_list, filename, settings, callbacks)
-       -> processor.process_news(news_list, settings, callbacks)
+  -> report_service.build_report_from_news_list(news_list, filename, settings)
+       -> processor.process_news(news_list, settings,
+              on_scrape_progress=..., on_classify_progress=...)
             -> scraper.scrape_article(session, source_url, timeout)
             -> classifier.classify_news(...)
        -> excel_exporter.build_excel_report(news_list, week_date)

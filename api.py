@@ -46,6 +46,7 @@ def process_weekly_news(file: UploadFile = File(...)):
         "X-News-Total-Count": str(summary.total_count),
         "X-News-Scrape-Failed-Count": str(summary.scrape_failed_count),
         "X-News-Classification-Fallback-Count": str(summary.classification_fallback_count),
+        "X-News-Summary-Aligned-Count": str(summary.summary_aligned_count),
     }
     return StreamingResponse(
         report,

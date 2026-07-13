@@ -6,11 +6,14 @@ import requests
 from services.classifier import (
     MAX_ENGLISH_EVIDENCE_CHARS,
     REVIEW_REQUIRED,
+    SUMMARY_ALIGNMENT_KEEP_ORIGINAL,
     VLLM_UNAVAILABLE_COOLDOWN_SECONDS,
     _build_prompt,
+    _build_summary_alignment_prompt,
     _classify_with_vllm,
     _select_english_evidence,
     _vllm_unavailable_until,
+    align_summary_to_tags,
     classify_news,
     normalize_tags,
 )
@@ -60,6 +63,63 @@ class ClassifierTests(unittest.TestCase):
         self.assertIn("中文標題：中文標題", prompt)
         self.assertIn("中文摘要：中文摘要", prompt)
         self.assertIn("英文原文證據：English source evidence", prompt)
+
+    def test_summary_alignment_prompt_locks_existing_tags(self):
+        prompt = _build_summary_alignment_prompt(
+            "中文標題",
+            "中文摘要",
+            "碳定價;氣候法制",
+            "English source evidence",
+        )
+
+        self.assertIn("固定分類標籤", prompt)
+        self.assertIn("碳定價;氣候法制", prompt)
+        self.assertIn(SUMMARY_ALIGNMENT_KEEP_ORIGINAL, prompt)
+
+    @patch("services.classifier.requests.post")
+    def test_align_summary_keeps_original_when_evidence_is_insufficient(self, post):
+        post.return_value.json.return_value = {
+            "choices": [{"message": {"content": SUMMARY_ALIGNMENT_KEEP_ORIGINAL}}]
+        }
+
+        summary, aligned = align_summary_to_tags(
+            "標題",
+            "原始摘要內容。",
+            "碳定價;氣候法制",
+            "http://localhost:8000",
+            "test-model",
+            300,
+            0,
+            384,
+            "English source evidence",
+        )
+
+        self.assertEqual(summary, "原始摘要內容。")
+        self.assertFalse(aligned)
+
+    @patch("services.classifier.requests.post")
+    def test_align_summary_preserves_tags_outside_summary_output(self, post):
+        aligned_text = (
+            "政府公布碳定價制度修法，明定執行規則與監督機制，以提升制度的可預測性與法規明確性。"
+            * 3
+        )
+        post.return_value.json.return_value = {
+            "choices": [{"message": {"content": aligned_text}}]
+        }
+
+        summary, aligned = align_summary_to_tags(
+            "標題",
+            "原始摘要內容。",
+            "碳定價;氣候法制",
+            "http://localhost:8000",
+            "test-model",
+            300,
+            0,
+            384,
+        )
+
+        self.assertEqual(summary, aligned_text)
+        self.assertTrue(aligned)
 
     def test_select_english_evidence_limits_prompt_input(self):
         evidence = _select_english_evidence("A" * 10000)

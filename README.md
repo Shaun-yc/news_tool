@@ -7,10 +7,11 @@
 - 解析 Word 總表中的新聞標題、摘要與來源網址
 - 擷取來源網站英文標題、發布日期與完整英文內文
 - 爬蟲先使用 `requests + BeautifulSoup`，失敗或內文太短時使用 Playwright/Chromium fallback
-- 根據 Word 內的中文標題與摘要，使用內網 vLLM 產生 1 至 3 個新聞分類標籤
+- 根據 Word 內的中文標題與摘要，使用分類專用 vLLM 產生 1 至 3 個新聞分類標籤
+- 分類成功後，以主 vLLM 在固定標籤不變的前提下對齊中文摘要；證據不足時保留原摘要
 - 僅接受固定標籤池內的類別；資訊不足、回應無效或模型呼叫失敗時標記「待人工確認」
 - 產出標準格式 Excel，並清楚標示需人工確認的資料
-- 在畫面顯示處理總數、來源擷取失敗數與分類待人工確認數
+- 在畫面顯示處理總數、來源擷取失敗數、分類待人工確認數與摘要對齊數
 - 提供 FastAPI 端點，供 n8n 或其他系統上傳 Word 並下載 Excel
 - 成功處理後保留原始 Word、輸出 Excel 與 metadata，供管理端稽核
 
@@ -28,11 +29,11 @@ Copy-Item .env.example .env
 
 | 變數 | 必填 | 預設值 | 說明 |
 | --- | --- | --- | --- |
-| `VLLM_BASE_URL` | 否 | `http://localhost:8000` | 主 vLLM OpenAI-compatible 服務位址；分類專用位址未設定時使用 |
-| `VLLM_MODEL` | 否 | `diffusiongemma-4-26b` | 主模型名稱；分類專用模型未設定時使用 |
+| `VLLM_BASE_URL` | 否 | `http://localhost:8000` | 主 vLLM OpenAI-compatible 服務位址，用於摘要對齊；分類專用位址未設定時也會使用 |
+| `VLLM_MODEL` | 否 | `diffusiongemma-4-26b` | 主模型名稱，用於摘要對齊；分類專用模型未設定時也會使用 |
 | `VLLM_TIMEOUT_SECONDS` | 否 | `600` | vLLM 推論逾時秒數 |
 | `VLLM_TEMPERATURE` | 否 | `0` | 模型溫度；分類任務建議維持 0 |
-| `VLLM_MAX_TOKENS` | 否 | `256` | 最大輸出 token 數 |
+| `VLLM_MAX_TOKENS` | 否 | `256` | 保留的主模型輸出上限設定；目前摘要對齊改用 `SUMMARY_ALIGN_MAX_TOKENS` |
 | `CLASSIFY_BASE_URL` | 否 | 同 `VLLM_BASE_URL` | 分類專用模型位址；未設定時退回主模型 |
 | `CLASSIFY_MODEL` | 否 | 同 `VLLM_MODEL` | 分類專用模型名稱 |
 | `CLASSIFY_MAX_TOKENS` | 否 | `64` | 分類輸出最大 token 數 |
@@ -106,7 +107,7 @@ python -m venv .venv
 .venv\Scripts\python.exe -m uvicorn api:app --host 0.0.0.0 --port 8001
 ```
 
-## n8n 串接
+## API / n8n 串接
 
 FastAPI 服務開在 `8001`，提供以下端點：
 
@@ -115,24 +116,9 @@ FastAPI 服務開在 `8001`，提供以下端點：
 | `GET` | `/health` | API 健康檢查 |
 | `POST` | `/process` | 上傳 `.docx`，回傳產出的 `.xlsx` |
 
-### 匯入 n8n workflow
-
-使用 `n8n-webhook-news-docx-to-excel-v1.json` 匯入 n8n，流程說明：
-
-1. **Webhook** 接收 `.docx` 檔案（POST `/webhook/news-process`）
-2. 轉送至 news_tool API（`POST /process`）
-3. 成功 → 將 `.xlsx` 直接回傳給呼叫端 + Slack 通知
-4. 失敗 → 回傳錯誤 JSON + Slack 通知
+在 n8n 可用 Webhook 接收 `.docx`，再以 HTTP Request 節點用 `multipart/form-data` 將 binary 欄位 `file` 傳至 `POST /process`。儲存庫目前未提供可直接匯入的 n8n workflow JSON。
 
 ### curl 測試
-
-```powershell
-curl.exe -X POST "http://<n8n-host>:<port>/webhook/news-process" `
-  -F "file=@D:\path\to\weekly.docx" `
-  --output result.xlsx
-```
-
-直接呼叫 API（不經 n8n）：
 
 ```powershell
 curl.exe -X POST "http://localhost:8001/process" `
@@ -169,10 +155,14 @@ services/
   processor.py             處理流程協調
   word_parser.py           Word 解析
   scraper.py               新聞網頁擷取
-  classifier.py            vLLM 分類
+  classifier.py            vLLM 分類與固定標籤摘要對齊
   summarizer.py            獨立摘要 helper（目前主流程未使用）
   report_service.py        報告組裝
   excel_exporter.py        Excel 匯出
   url_security.py          URL 安全性驗證（SSRF 防護）
 tests/                     pytest 單元測試
+docs/
+  architecture.md          現行架構與模組資料流
+  adr/0001-news-tool-architecture.md
+                            現行架構決策紀錄
 ```

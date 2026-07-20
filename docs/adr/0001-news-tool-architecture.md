@@ -14,7 +14,7 @@ Accepted
 
 1. 解析 Word 檔中的中文標題、中文摘要與來源 URL。
 2. 擷取來源網頁的英文標題、發布日期與完整文章內容。
-3. 使用本地 vLLM 相容 API 產生 1 到 3 個氣候分類標籤。
+3. 使用 vLLM 相容 API 產生 1 到 3 個氣候分類標籤，並在標籤固定後依來源證據對齊中文摘要。
 4. 匯出 14 欄標準格式 Excel。
 5. 同時支援人工互動流程與自動化流程。
 
@@ -60,10 +60,10 @@ Accepted
 
 ### 處理層
 
-`services/processor.py` 的 `process_news()` 將批次處理拆成兩個 sequential phases：
+`services/processor.py` 的 `process_news()` 將批次處理拆成兩個 sequential loops，第二個 loop 內含條件式摘要對齊：
 
 1. Scrape phase：逐筆呼叫 `scrape_article()`，填入 `en_title`、`pubdate`、`en_content`、`scrape_succeeded`。
-2. Classify phase：逐筆呼叫 `classify_news()`，填入 `subcategory`、`classification_succeeded`。
+2. Classify phase：逐筆呼叫 `classify_news()`，填入 `subcategory`、`classification_succeeded`；分類成功時再呼叫 `align_summary_to_tags()`，必要時更新 `content`。
 
 這個設計讓 scrape 與 classify 的進度 callback 可以分開呈現，也讓失敗統計集中在 `ProcessingSummary`。
 
@@ -85,6 +85,8 @@ Accepted
 - 英文證據限制為 6000 字元內。
 - `normalize_tags()` 接受白名單中的 1 到 3 個標籤；單一核心主題可只保留 1 個，超過 3 個取前 3 個，沒有有效標籤、`NONE` 或無效輸出會進入人工確認狀態。
 - vLLM request failure 會對該 base URL 啟動 300 秒 cooldown，避免連續失敗拖慢整批處理。
+- 分類使用 `CLASSIFY_BASE_URL`／`CLASSIFY_MODEL`；摘要對齊使用主模型 `VLLM_BASE_URL`／`VLLM_MODEL` 與 `SUMMARY_ALIGN_MAX_TOKENS`。
+- `align_summary_to_tags()` 不允許修改固定標籤；證據不足、模型失敗或輸出不合規時保留原摘要。
 
 ### 匯出層
 
@@ -96,14 +98,14 @@ Accepted
 
 ### 設定層
 
-`services/config.py` 將環境變數轉成 frozen `Settings` dataclass。分類專用模型未設定時會 fallback 到主模型設定；稽核目錄與保留天數分別由 `AUDIT_ARCHIVE_DIR`、`AUDIT_RETENTION_DAYS` 控制。程式內仍有 fallback 預設值，因此部署時應明確提供 `.env`，避免連到不預期的 endpoint。
+`services/config.py` 將環境變數轉成 frozen `Settings` dataclass。分類專用模型未設定時會 fallback 到主模型設定；主模型負責成功分類後的摘要對齊。稽核目錄與保留天數分別由 `AUDIT_ARCHIVE_DIR`、`AUDIT_RETENTION_DAYS` 控制。程式內仍有 fallback 預設值，因此部署時應明確提供 `.env`，避免連到不預期的 endpoint。`VLLM_MAX_TOKENS` 目前保留在設定中，但主流程摘要對齊使用 `SUMMARY_ALIGN_MAX_TOKENS`。
 
 ## Consequences
 
 ### 優點
 
 - 單一 codebase 同時支援 UI 與 API，重用相同 service layer。
-- `processor.process_news()` 將 scrape 與 classify 分階段處理，方便進度顯示與錯誤統計。
+- `processor.process_news()` 將 scrape 與 classify 分階段處理，並只在分類成功後對齊摘要，方便進度顯示與錯誤統計。
 - requests-first 降低一般靜態頁面的成本，Playwright fallback 保留處理 JS-heavy 頁面的能力。
 - URL 驗證集中在網路存取前與 redirect 後，降低 SSRF 風險。
 - vLLM cooldown 讓分類服務異常時不會反覆阻塞整批新聞。
@@ -141,4 +143,5 @@ Accepted
 
 - 本 ADR 描述的是現行架構，不記錄 codebase-memory-mcp 的節點或邊數，因為該統計會隨掃描時間與排除規則改變。
 - 若新增 `summarizer.py` 到正式流程，應更新本 ADR 或新增 ADR 說明其角色與資料流。
+- 若移除目前未使用的 `VLLM_MAX_TOKENS`，應同步更新 `.env.example` 與所有設定文件。
 - 若實作 Excel 內容截斷策略，應明確定義截斷位置、提示文字與是否保留原始全文。

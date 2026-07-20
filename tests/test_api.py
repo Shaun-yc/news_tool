@@ -9,8 +9,9 @@ from services.processor import ProcessingSummary
 
 
 class ApiTests(unittest.TestCase):
+    @patch("api.archive_report")
     @patch("api.build_weekly_news_report")
-    def test_process_returns_excel_file(self, build_weekly_news_report):
+    def test_process_returns_excel_file(self, build_weekly_news_report, archive_report):
         build_weekly_news_report.return_value = (
             io.BytesIO(b"excel-bytes"),
             "永智週新聞csv_20260618.xlsx",
@@ -35,6 +36,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.headers["x-news-total-count"], "2")
         self.assertEqual(response.headers["x-news-scrape-failed-count"], "1")
         self.assertEqual(response.headers["x-news-classification-fallback-count"], "0")
+        self.assertEqual(archive_report.call_args.args[0], b"docx-bytes")
+        self.assertEqual(archive_report.call_args.args[2], b"excel-bytes")
 
     def test_process_rejects_non_docx_file(self):
         upload = UploadFile(filename="news.txt", file=io.BytesIO(b"text"))

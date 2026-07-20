@@ -4,6 +4,7 @@ import re
 
 import streamlit as st
 
+from services.audit_archive import archive_report
 from services.config import get_settings
 from services.report_service import build_report_from_news_list, get_week_date
 from services.word_parser import parse_word_news
@@ -70,6 +71,7 @@ if uploaded_file is not None:
 
     if st.button("開始處理", type="primary"):
         try:
+            input_bytes = uploaded_file.getvalue()
             with st.spinner("正在解析 Word 檔案..."):
                 news_list = parse_word_news(uploaded_file)
             if not news_list:
@@ -99,7 +101,22 @@ if uploaded_file is not None:
                 on_classify_progress=update_classify_progress,
             )
 
-            st.session_state["report"] = report.getvalue()
+            output_bytes = report.getvalue()
+            try:
+                audit_dir = archive_report(
+                    input_bytes,
+                    uploaded_file.name,
+                    output_bytes,
+                    output_filename,
+                    summary,
+                    settings.audit_archive_dir,
+                    settings.audit_retention_days,
+                )
+                logger.info("Audit files saved to %s", audit_dir)
+            except OSError:
+                logger.exception("Failed to save audit files")
+
+            st.session_state["report"] = output_bytes
             st.session_state["output_filename"] = output_filename
             st.session_state["summary"] = summary
             st.success("報告已產出。")

@@ -1,9 +1,11 @@
+import io
 import logging
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
+from services.audit_archive import archive_report
 from services.config import get_settings
 from services.report_service import build_weekly_news_report
 
@@ -28,16 +30,33 @@ def process_weekly_news(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="請上傳 .docx 週新聞檔案")
 
     try:
+        settings = get_settings()
+        input_bytes = file.file.read()
         report, output_filename, summary = build_weekly_news_report(
-            file.file,
+            io.BytesIO(input_bytes),
             file.filename,
-            get_settings(),
+            settings,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         logger.exception("Weekly news API processing failed")
         raise HTTPException(status_code=500, detail="處理失敗，請查看服務日誌") from error
+
+    output_bytes = report.getvalue()
+    try:
+        audit_dir = archive_report(
+            input_bytes,
+            file.filename,
+            output_bytes,
+            output_filename,
+            summary,
+            settings.audit_archive_dir,
+            settings.audit_retention_days,
+        )
+        logger.info("Audit files saved to %s", audit_dir)
+    except OSError:
+        logger.exception("Failed to save audit files")
 
     headers = {
         "Content-Disposition": (
@@ -49,7 +68,7 @@ def process_weekly_news(file: UploadFile = File(...)):
         "X-News-Summary-Aligned-Count": str(summary.summary_aligned_count),
     }
     return StreamingResponse(
-        report,
+        io.BytesIO(output_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )

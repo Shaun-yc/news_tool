@@ -50,7 +50,7 @@ docker compose logs -f
 | `services/config.py` | 設定讀取（環境變數 → `Settings` dataclass） |
 | `services/word_parser.py` | 解析 `.docx`，萃取 `zh_title`、`content`、`source_url` |
 | `services/scraper.py` | 擷取來源網頁標題、日期與完整文章內容，必要時使用 Playwright fallback |
-| `services/classifier.py` | 呼叫 vLLM `/v1/chat/completions` 執行分類（16 個氣候標籤池，2～5 個標籤，含 vLLM cooldown 機制） |
+| `services/classifier.py` | 呼叫 vLLM `/v1/chat/completions` 執行分類（16 個氣候標籤池，1～3 個標籤，含 vLLM cooldown 機制） |
 | `services/summarizer.py` | 將英文全文摘要成繁體中文（目前未被任何地方 import，為 dead code） |
 | `services/processor.py` | 協調 scrape → classify 流程，回傳 `ProcessingSummary` |
 | `services/report_service.py` | 組裝 Excel 報告（`build_report_from_news_list`） |
@@ -94,7 +94,7 @@ REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
 - `url_security.py` 提供 `validate_public_url()` 驗證，所有外部 URL 在 scrape 前必須通過
 - `en_content` 必須保留擷取到的完整文章，不得在 scraper 任意截斷；Excel 單格仍受 32,767 字元上限約束
 - `pubdate` 只能來自高可信發布欄位；不得以整頁第一個日期或 `dateModified` 猜測，缺少可信日期時留白
-- 成功分類必須包含 2～5 個白名單標籤；少於 2 個時不得用預設標籤補位
+- 成功分類必須包含 1～3 個白名單標籤；理想為 2～3 個，單一核心主題時允許 1 個，且不得用預設標籤補位
 - 分類以中文標題與摘要為主，英文原文證據為輔；爬取失敗訊息不得送入分類 Prompt
 - vLLM 回傳無效標籤、`NONE` 或呼叫失敗時標記為「待人工確認」，不中斷整體流程
 - Playwright 須先安裝瀏覽器：`.venv\Scripts\python.exe -m playwright install chromium`
@@ -120,7 +120,7 @@ processor.process_news
     └─ Phase 2: classifier.classify_news → 填入 {subcategory, classification_succeeded}
             ├─ _build_prompt (中文標題 + 摘要 + 英文證據，上限 6000 chars)
             ├─ _classify_with_vllm (POST /v1/chat/completions)
-            ├─ normalize_tags (清洗輸出 → 2～5 個白名單標籤)
+            ├─ normalize_tags (清洗輸出 → 1～3 個白名單標籤)
             └─ vLLM cooldown 機制（連續失敗後 300 秒內不重試）
     ↓
 excel_exporter.build_excel_report → openpyxl BytesIO (14 欄標準格式)

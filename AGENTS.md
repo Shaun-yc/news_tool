@@ -48,6 +48,7 @@ docker compose logs -f
 | `.streamlit/config.toml` | Streamlit 設定（address: 0.0.0.0, port: 8501, headless: true） |
 | `start.sh` | 容器進入點，同時啟動 FastAPI（port 8001）與 Streamlit（port 8501）|
 | `services/config.py` | 設定讀取（環境變數 → `Settings` dataclass） |
+| `services/audit_archive.py` | 保存成功報告的原始 Word、輸出 Excel 與 metadata，並清理逾期資料 |
 | `services/word_parser.py` | 解析 `.docx`，萃取 `zh_title`、`content`、`source_url` |
 | `services/scraper.py` | 擷取來源網頁標題、日期與完整文章內容，必要時使用 Playwright fallback |
 | `services/classifier.py` | 呼叫 vLLM `/v1/chat/completions` 執行分類（16 個氣候標籤池，1～3 個標籤，含 vLLM cooldown 機制） |
@@ -74,11 +75,16 @@ VLLM_MAX_TOKENS=256                        # 最大輸出 token
 CLASSIFY_BASE_URL=http://localhost:8001    # 分類模型位址
 CLASSIFY_MODEL=gemma-4-e4b                 # 分類模型名稱
 CLASSIFY_MAX_TOKENS=64                     # 分類輸出最大 token
+SUMMARY_ALIGN_MAX_TOKENS=384               # 摘要對齊最大 token
 
 # 爬蟲設定
 SCRAPE_DELAY_SECONDS=0.8                   # 每次擷取間隔（秒）
 CLASSIFY_DELAY_SECONDS=3.5                 # 每次分類間隔（秒）
 REQUEST_TIMEOUT_SECONDS=7                  # HTTP 請求 timeout（秒）
+
+# 稽核留存
+AUDIT_ARCHIVE_DIR=audit                    # 本機留存目錄；Docker 固定掛載為 /app/audit
+AUDIT_RETENTION_DAYS=30                    # 新增報告時清除超過此天數的資料夾
 ```
 
 設定讀取順序為：已存在的環境變數優先，其次自動讀取專案根目錄的 `.env`，最後才使用公開安全的 localhost 預設值。實際內網或私有 vLLM 位址應放在未提交的 `.env` 中。
@@ -124,10 +130,13 @@ processor.process_news
             └─ vLLM cooldown 機制（連續失敗後 300 秒內不重試）
     ↓
 excel_exporter.build_excel_report → openpyxl BytesIO (14 欄標準格式)
+    ↓
+audit_archive.archive_report → 保存 input.docx、output.xlsx、metadata.json
 ```
 
 ## 部署
 
 - FastAPI 監聽 `0.0.0.0:8001`，Streamlit 監聽 `0.0.0.0:8501`
 - Healthcheck 定義在 `Dockerfile`，interval 30s / timeout 5s / retries 3
+- Docker 將主機 `./audit` 掛載至容器 `/app/audit`，稽核檔案不隨容器重建消失
 - GitHub Remote：`https://github.com/Shaun-yc/news_tool.git`

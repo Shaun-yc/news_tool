@@ -14,7 +14,7 @@ Accepted
 
 1. 解析 Word 檔中的中文標題、中文摘要與來源 URL。
 2. 擷取來源網頁的英文標題、發布日期與完整文章內容。
-3. 使用本地 vLLM 相容 API 產生 2 到 5 個氣候分類標籤。
+3. 使用本地 vLLM 相容 API 產生 1 到 3 個氣候分類標籤。
 4. 匯出 14 欄標準格式 Excel。
 5. 同時支援人工互動流程與自動化流程。
 
@@ -83,16 +83,20 @@ Accepted
 
 - Prompt 以中文標題與中文摘要為主，英文原文證據為補充。
 - 英文證據限制為 6000 字元內。
-- `normalize_tags()` 只接受白名單中的 2 到 5 個標籤；少於 2 個、`NONE` 或無效輸出會進入人工確認狀態。
+- `normalize_tags()` 接受白名單中的 1 到 3 個標籤；單一核心主題可只保留 1 個，超過 3 個取前 3 個，沒有有效標籤、`NONE` 或無效輸出會進入人工確認狀態。
 - vLLM request failure 會對該 base URL 啟動 300 秒 cooldown，避免連續失敗拖慢整批處理。
 
 ### 匯出層
 
 `services/excel_exporter.py` 使用 `openpyxl` 產生 14 欄 Excel，並以 `BytesIO` 回傳。它會移除非法 XML 字元，但目前不實作內容截斷。
 
+### 稽核留存層
+
+`services/audit_archive.py` 在報告成功產出後保存原始 Word、輸出 Excel 與 metadata。Streamlit 與 FastAPI 共用相同留存邏輯；寫入失敗只記錄 log，不阻斷下載。Docker Compose 將主機 `./audit` 掛載至容器 `/app/audit`，並在新增資料時依 `AUDIT_RETENTION_DAYS` 清除過期資料夾。
+
 ### 設定層
 
-`services/config.py` 將環境變數轉成 frozen `Settings` dataclass。分類專用模型未設定時會 fallback 到主模型設定。程式內仍有 fallback 預設值，因此部署時應明確提供 `.env`，避免連到不預期的 endpoint。
+`services/config.py` 將環境變數轉成 frozen `Settings` dataclass。分類專用模型未設定時會 fallback 到主模型設定；稽核目錄與保留天數分別由 `AUDIT_ARCHIVE_DIR`、`AUDIT_RETENTION_DAYS` 控制。程式內仍有 fallback 預設值，因此部署時應明確提供 `.env`，避免連到不預期的 endpoint。
 
 ## Consequences
 
@@ -104,6 +108,7 @@ Accepted
 - URL 驗證集中在網路存取前與 redirect 後，降低 SSRF 風險。
 - vLLM cooldown 讓分類服務異常時不會反覆阻塞整批新聞。
 - Excel 匯出與報表協調分離，便於測試輸出格式。
+- 稽核副本讓管理端可檢查其他使用組別上傳的來源與分類結果。
 
 ### 代價
 
@@ -112,6 +117,7 @@ Accepted
 - `config.py` 的 fallback 預設值可能掩蓋缺少 `.env` 的部署問題。
 - Excel 單格長度限制尚未有顯式截斷或保留策略。
 - `services/summarizer.py` 目前未被主流程呼叫，文件與後續維護不應把它視為核心架構的一部分。
+- 稽核資料包含使用者上傳內容，部署端需要依資料治理要求設定保留天數與存取權限。
 
 ## Alternatives Considered
 
@@ -129,7 +135,7 @@ Accepted
 
 ### 分類失敗時補預設標籤
 
-未採用。若 vLLM 只回傳 0 到 1 個有效標籤，系統會標記待人工確認，而不是用預設標籤補足。這避免報表出現看似確定但實際缺乏依據的分類。
+未採用。若 vLLM 沒有回傳任何有效標籤，系統會標記待人工確認，而不是用預設標籤補足。單一核心主題允許 1 個有效標籤。這避免報表出現看似確定但實際缺乏依據的分類。
 
 ## Notes
 

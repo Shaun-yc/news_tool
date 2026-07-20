@@ -7,11 +7,12 @@
 - 解析 Word 總表中的新聞標題、摘要與來源網址
 - 擷取來源網站英文標題、發布日期與完整英文內文
 - 爬蟲先使用 `requests + BeautifulSoup`，失敗或內文太短時使用 Playwright/Chromium fallback
-- 根據 Word 內的中文標題與摘要，使用內網 vLLM 產生 2 至 5 個新聞分類標籤
+- 根據 Word 內的中文標題與摘要，使用內網 vLLM 產生 1 至 3 個新聞分類標籤
 - 僅接受固定標籤池內的類別；資訊不足、回應無效或模型呼叫失敗時標記「待人工確認」
 - 產出標準格式 Excel，並清楚標示需人工確認的資料
 - 在畫面顯示處理總數、來源擷取失敗數與分類待人工確認數
 - 提供 FastAPI 端點，供 n8n 或其他系統上傳 Word 並下載 Excel
+- 成功處理後保留原始 Word、輸出 Excel 與 metadata，供管理端稽核
 
 > `content_tran` 不再由程式截成 4,000 字元；但 Excel 單一儲存格本身最多可保存 32,767 個字元。
 
@@ -35,9 +36,12 @@ Copy-Item .env.example .env
 | `CLASSIFY_BASE_URL` | 否 | 同 `VLLM_BASE_URL` | 分類專用模型位址；未設定時退回主模型 |
 | `CLASSIFY_MODEL` | 否 | 同 `VLLM_MODEL` | 分類專用模型名稱 |
 | `CLASSIFY_MAX_TOKENS` | 否 | `64` | 分類輸出最大 token 數 |
+| `SUMMARY_ALIGN_MAX_TOKENS` | 否 | `384` | 依固定分類標籤對齊中文摘要的最大輸出 token 數 |
 | `SCRAPE_DELAY_SECONDS` | 否 | `0.8` | 每次網站擷取後等待秒數 |
 | `CLASSIFY_DELAY_SECONDS` | 否 | `3.5` | 每次 AI 分類後等待秒數 |
 | `REQUEST_TIMEOUT_SECONDS` | 否 | `7` | 網站擷取逾時秒數 |
+| `AUDIT_ARCHIVE_DIR` | 否 | `audit` | 成功處理後保存輸入、輸出與 metadata 的目錄 |
+| `AUDIT_RETENTION_DAYS` | 否 | `30` | 新報告留存時清除超過此天數的稽核資料夾 |
 
 ## 下載使用
 
@@ -52,11 +56,11 @@ cd news_tool
 
 分類模型以 Word 檔中的中文標題與中文摘要作為主要依據，並使用爬蟲擷取的英文原文證據交叉驗證。為控制模型上下文，英文原文會取開頭與結尾合計最多 6,000 字元；Excel 的 `content_tran` 仍保存完整擷取內容。
 
-- 模型必須從固定標籤池選擇 2 至 5 個標籤，並依相關性排序。
-- 程式會移除未知標籤、重複標籤與超過 5 個的項目。
+- 模型必須從固定標籤池選擇 1 至 3 個標籤，並依相關性排序；理想為 2 至 3 個，單一核心主題時允許 1 個。
+- 程式會移除未知標籤與重複標籤，超過 3 個時依相關性保留前 3 個。
 - 每個標籤都必須能在中文標題、中文摘要或英文原文證據中找到明確依據。
 - 若沒有充分依據，模型應回傳 `NONE`。
-- `NONE`、少於 2 個有效標籤、API 錯誤或逾時都會輸出「待人工確認」，不會自動補上其他分類。
+- `NONE`、沒有有效標籤、API 錯誤或逾時都會輸出「待人工確認」，不會自動補上其他分類。
 
 ## 發布日期
 
@@ -85,6 +89,8 @@ docker compose logs -f
 - FastAPI 健康檢查：`http://localhost:8001/health`
 
 > Docker image 會安裝 Playwright Chromium，首次 build 時間較長。
+
+成功處理的稽核檔案會保存在主機的 `./audit`（Windows 專案路徑預設為 `D:\news_tool\audit`）；每筆包含 `input.docx`、`output.xlsx` 與 `metadata.json`。
 
 ## 本機啟動（開發用）
 
@@ -141,6 +147,7 @@ API 回傳 Excel 檔案，並在 response headers 附上處理摘要：
 | `X-News-Total-Count` | 總新聞數 |
 | `X-News-Scrape-Failed-Count` | 擷取失敗數 |
 | `X-News-Classification-Fallback-Count` | 分類待人工確認數（保留既有 header 名稱以維持相容性） |
+| `X-News-Summary-Aligned-Count` | 依分類標籤完成摘要對齊的新聞數 |
 
 ## 測試
 
@@ -158,6 +165,7 @@ docker-compose.yml         Docker 統一啟動配置
 Dockerfile                 容器建置定義
 services/
   config.py                環境設定
+  audit_archive.py         成功報告的輸入、輸出與 metadata 稽核留存
   processor.py             處理流程協調
   word_parser.py           Word 解析
   scraper.py               新聞網頁擷取

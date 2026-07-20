@@ -25,6 +25,7 @@ Domain Services
   services/scraper.py          requests-first web scraping with Playwright fallback
   services/classifier.py       vLLM classification and tag normalization
   services/excel_exporter.py   14-column Excel export
+  services/audit_archive.py    input/output/metadata audit retention
   services/url_security.py     public URL validation before network access
 
 Configuration
@@ -44,6 +45,7 @@ app.py
             -> scraper.scrape_article(session, source_url, timeout)
             -> classifier.classify_news(...)
        -> excel_exporter.build_excel_report(news_list, week_date)
+  -> audit_archive.archive_report(input_bytes, output_bytes, metadata)
   -> st.download_button(...)
 ```
 
@@ -56,6 +58,7 @@ api.py POST /process
        -> report_service.build_report_from_news_list(news_list, filename, settings)
             -> processor.process_news(...)
             -> excel_exporter.build_excel_report(...)
+  -> audit_archive.archive_report(input_bytes, output_bytes, metadata)
   -> StreamingResponse(.xlsx)
 ```
 
@@ -100,7 +103,7 @@ api.py POST /process
 - 使用 vLLM 相容的 `/v1/chat/completions` endpoint。
 - `_build_prompt()` 使用中文標題與中文摘要作為主要判斷依據，英文原文證據作為補充。
 - `_select_english_evidence()` 會把英文證據限制在 `MAX_ENGLISH_EVIDENCE_CHARS = 6000` 字元內，採前段與後段保留。
-- `normalize_tags()` 只接受白名單中的 2 到 5 個標籤；超過 5 個會取前 5 個；少於 2 個或 `NONE` 會回傳 `None`。
+- `normalize_tags()` 接受白名單中的 1 到 3 個標籤；單一核心主題允許 1 個，超過 3 個會取前 3 個，沒有有效標籤或 `NONE` 會回傳 `None`。
 - vLLM `requests.RequestException` 會啟動 `VLLM_UNAVAILABLE_COOLDOWN_SECONDS = 300` 秒 cooldown；cooldown 期間分類直接回傳 `REVIEW_REQUIRED, False`。
 - 分類失敗、無效標籤、`NONE` 或 cooldown 都不會中斷整批流程，而是標記為待人工確認。
 
@@ -111,7 +114,7 @@ api.py POST /process
   1. Scrape phase：呼叫 `scrape_article()`，填入 `en_title`、`pubdate`、`en_content`、`scrape_succeeded`。
   2. Classify phase：呼叫 `classify_news()`，填入 `subcategory`、`classification_succeeded`。
 - 若 scrape 失敗，不會把失敗訊息當英文證據送入分類 prompt。
-- 回傳 `ProcessingSummary(total_count, scrape_failed_count, classification_fallback_count)`。
+- 回傳 `ProcessingSummary(total_count, scrape_failed_count, classification_fallback_count, summary_aligned_count)`。
 
 ### `services/report_service.py`
 
@@ -137,6 +140,13 @@ api.py POST /process
 - `get_settings()` 從環境變數讀取設定。
 - 若環境變數不存在，會使用程式內 fallback 預設值。這些預設值與 `.env.example` 對齊，但可能不適合所有部署環境。
 
+### `services/audit_archive.py`
+
+- Streamlit 與 FastAPI 在報告成功產出後，保存 `input.docx`、`output.xlsx` 與 `metadata.json`。
+- 每筆資料夾以 UTC 時間與輸入檔 SHA-256 前綴命名，避免同名或併發處理互相覆蓋。
+- 稽核寫入失敗只記錄 log，不阻斷使用者下載。
+- 每次新增稽核資料時，清除超過 `AUDIT_RETENTION_DAYS` 的舊資料夾。
+
 ## 設定
 
 主要環境變數：
@@ -151,10 +161,14 @@ VLLM_MAX_TOKENS
 CLASSIFY_BASE_URL
 CLASSIFY_MODEL
 CLASSIFY_MAX_TOKENS
+SUMMARY_ALIGN_MAX_TOKENS
 
 SCRAPE_DELAY_SECONDS
 CLASSIFY_DELAY_SECONDS
 REQUEST_TIMEOUT_SECONDS
+
+AUDIT_ARCHIVE_DIR
+AUDIT_RETENTION_DAYS
 ```
 
 分類專用設定未提供時，`CLASSIFY_BASE_URL` 與 `CLASSIFY_MODEL` 會 fallback 到主模型設定。
@@ -169,6 +183,7 @@ REQUEST_TIMEOUT_SECONDS
   - `8001`：FastAPI
   - `8501`：Streamlit
 - `Dockerfile` healthcheck 呼叫 `http://127.0.0.1:8001/health`。
+- `docker-compose.yml` 將主機 `./audit` 掛載到容器 `/app/audit`，容器重建後仍保留稽核檔案。
 
 ## 測試結構
 
@@ -177,6 +192,7 @@ REQUEST_TIMEOUT_SECONDS
 - `tests/test_api.py`
 - `tests/test_classifier.py`
 - `tests/test_config.py`
+- `tests/test_audit_archive.py`
 - `tests/test_excel_exporter.py`
 - `tests/test_processor.py`
 - `tests/test_scraper.py`

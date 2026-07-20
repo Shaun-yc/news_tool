@@ -18,6 +18,8 @@ class Settings:
     classify_model: str
     classify_max_tokens: int
     summary_align_max_tokens: int
+    audit_archive_dir: str = "audit"
+    audit_retention_days: int = 30
 
 
 def _get_float(name, default, minimum=0):
@@ -70,4 +72,6 @@ def get_settings(env_file=".env"):
         classify_model=os.getenv("CLASSIFY_MODEL") or main_model,
         classify_max_tokens=_get_int("CLASSIFY_MAX_TOKENS", 64, minimum=16),
         summary_align_max_tokens=_get_int("SUMMARY_ALIGN_MAX_TOKENS", 384, minimum=64),
+        audit_archive_dir=os.getenv("AUDIT_ARCHIVE_DIR") or "audit",
+        audit_retention_days=_get_int("AUDIT_RETENTION_DAYS", 30, minimum=1),
     )

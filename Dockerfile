@@ -3,8 +3,8 @@ FROM python:3.12-slim
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    && python -m playwright install --with-deps chromium
+RUN pip install --no-cache-dir --timeout 120 --retries 5 -r requirements.txt
+RUN PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=120000 python -m playwright install --with-deps chromium
 
 COPY . .
 RUN sed -i 's/\r$//' /app/start.sh \

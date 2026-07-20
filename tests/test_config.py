@@ -32,6 +32,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.classify_delay_seconds, 3.5)
         self.assertEqual(settings.request_timeout_seconds, 7.0)
         self.assertEqual(settings.vllm_timeout_seconds, 600.0)
+        self.assertEqual(settings.audit_archive_dir, "audit")
+        self.assertEqual(settings.audit_retention_days, 30)
 
     def test_get_settings_loads_local_env_without_overriding_process_env(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -32,8 +32,8 @@ class ClassifierTests(unittest.TestCase):
             "碳定價;氣候法制",
         )
 
-    def test_normalize_tags_rejects_single_allowed_tag(self):
-        self.assertIsNone(normalize_tags("淨零科技"))
+    def test_normalize_tags_accepts_single_allowed_tag(self):
+        self.assertEqual(normalize_tags("淨零科技"), "淨零科技")
 
     def test_normalize_tags_drops_unknown_tags(self):
         self.assertEqual(
@@ -47,14 +47,13 @@ class ClassifierTests(unittest.TestCase):
     def test_normalize_tags_rejects_only_unknown_tags(self):
         self.assertIsNone(normalize_tags("未知標籤;其他說明"))
 
-    def test_normalize_tags_limits_result_to_five(self):
+    def test_normalize_tags_limits_result_to_three(self):
         self.assertEqual(
             normalize_tags(
                 "溫室氣體減量;氣候變遷調適;公約會議及進展;"
                 "各國減碳目標(NDC);碳定價;氣候法制"
             ),
-            "溫室氣體減量;氣候變遷調適;公約會議及進展;"
-            "各國減碳目標(NDC);碳定價",
+            "溫室氣體減量;氣候變遷調適;公約會議及進展",
         )
 
     def test_build_prompt_includes_chinese_summary_and_english_evidence(self):
@@ -63,6 +62,8 @@ class ClassifierTests(unittest.TestCase):
         self.assertIn("中文標題：中文標題", prompt)
         self.assertIn("中文摘要：中文摘要", prompt)
         self.assertIn("英文原文證據：English source evidence", prompt)
+        self.assertIn("選出 1～3 個最相關標籤", prompt)
+        self.assertIn("單一核心主題時只選 1 個", prompt)
 
     def test_summary_alignment_prompt_locks_existing_tags(self):
         prompt = _build_summary_alignment_prompt(
@@ -166,22 +167,21 @@ class ClassifierTests(unittest.TestCase):
         self.assertFalse(succeeded)
 
     @patch("services.classifier._classify_with_vllm")
-    def test_classify_news_requires_review_when_only_one_tag_is_valid(self, vllm):
+    def test_classify_news_accepts_one_valid_tag(self, vllm):
         vllm.return_value = "淨零科技"
 
-        with self.assertLogs("services.classifier", level="WARNING"):
-            tags, succeeded = classify_news(
-                "標題",
-                "摘要",
-                "http://192.168.0.92:8000",
-                "diffusiongemma-4-26b",
-                300,
-                0,
-                256,
-            )
+        tags, succeeded = classify_news(
+            "標題",
+            "摘要",
+            "http://192.168.0.92:8000",
+            "diffusiongemma-4-26b",
+            300,
+            0,
+            256,
+        )
 
-        self.assertEqual(tags, REVIEW_REQUIRED)
-        self.assertFalse(succeeded)
+        self.assertEqual(tags, "淨零科技")
+        self.assertTrue(succeeded)
 
     @patch("services.classifier._classify_with_vllm")
     def test_classify_news_requires_review_when_vllm_fails(self, vllm):

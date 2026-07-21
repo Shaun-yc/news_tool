@@ -2,7 +2,7 @@
 
 ## 概覽
 
-`news_tool` 是週新聞彙整工具。它從 `.docx` 週新聞檔解析中文標題、中文摘要與來源 URL，擷取來源網頁的英文標題、發布日期與內文，使用本地 vLLM 相容的 `/v1/chat/completions` API 進行氣候議題分類，最後輸出標準格式 Excel。
+`news_tool` 是週新聞彙整工具。它從 `.docx` 週新聞檔解析中文標題、中文摘要與來源 URL，擷取來源網頁的英文標題、發布日期與內文，使用 vLLM 相容的 `/v1/chat/completions` API 進行氣候議題分類及固定標籤摘要對齊，最後輸出標準 14 欄 Excel。
 
 系統提供兩個入口：
 
@@ -18,13 +18,15 @@ Presentation / API
 
 Application / Orchestration
   services/report_service.py   Word/report workflow wrapper
-  services/processor.py        scrape -> classify orchestration
+  services/processor.py        scrape -> classify -> summary alignment orchestration
 
 Domain Services
   services/word_parser.py      .docx parsing
   services/scraper.py          requests-first web scraping with Playwright fallback
-  services/classifier.py       vLLM classification and tag normalization
+  services/classifier.py       vLLM classification, tag normalization, summary alignment
+  services/summarizer.py       unused legacy summary helper (not in the main flow)
   services/excel_exporter.py   14-column Excel export
+  services/audit_archive.py    input/output/metadata audit retention
   services/url_security.py     public URL validation before network access
 
 Configuration
@@ -43,7 +45,9 @@ app.py
               on_scrape_progress=..., on_classify_progress=...)
             -> scraper.scrape_article(session, source_url, timeout)
             -> classifier.classify_news(...)
+            -> classifier.align_summary_to_tags(...) when classification succeeds
        -> excel_exporter.build_excel_report(news_list, week_date)
+  -> audit_archive.archive_report(input_bytes, output_bytes, metadata)
   -> st.download_button(...)
 ```
 
@@ -55,7 +59,9 @@ api.py POST /process
        -> word_parser.parse_word_news(file_object)
        -> report_service.build_report_from_news_list(news_list, filename, settings)
             -> processor.process_news(...)
+                 -> scrape -> classify -> summary alignment
             -> excel_exporter.build_excel_report(...)
+  -> audit_archive.archive_report(input_bytes, output_bytes, metadata)
   -> StreamingResponse(.xlsx)
 ```
 
@@ -100,18 +106,20 @@ api.py POST /process
 - 使用 vLLM 相容的 `/v1/chat/completions` endpoint。
 - `_build_prompt()` 使用中文標題與中文摘要作為主要判斷依據，英文原文證據作為補充。
 - `_select_english_evidence()` 會把英文證據限制在 `MAX_ENGLISH_EVIDENCE_CHARS = 6000` 字元內，採前段與後段保留。
-- `normalize_tags()` 只接受白名單中的 2 到 5 個標籤；超過 5 個會取前 5 個；少於 2 個或 `NONE` 會回傳 `None`。
+- `normalize_tags()` 接受白名單中的 1 到 3 個標籤；單一核心主題允許 1 個，超過 3 個會取前 3 個，沒有有效標籤或 `NONE` 會回傳 `None`。
 - vLLM `requests.RequestException` 會啟動 `VLLM_UNAVAILABLE_COOLDOWN_SECONDS = 300` 秒 cooldown；cooldown 期間分類直接回傳 `REVIEW_REQUIRED, False`。
 - 分類失敗、無效標籤、`NONE` 或 cooldown 都不會中斷整批流程，而是標記為待人工確認。
+- `align_summary_to_tags()` 只在分類成功後執行，使用主模型與已固定的標籤重新檢查中文摘要。
+- 摘要對齊不得改動標籤或杜撰來源沒有的資訊；模型回傳 `KEEP_ORIGINAL`、輸出少於 120 或超過 500 字、呼叫失敗時都保留原摘要。
 
 ### `services/processor.py`
 
 - 主要函式：`process_news()`。
-- 對整批 `news_list` 執行兩個 sequential phases：
+- 對整批 `news_list` 執行兩個 sequential loops，第二個 loop 內含條件式摘要對齊：
   1. Scrape phase：呼叫 `scrape_article()`，填入 `en_title`、`pubdate`、`en_content`、`scrape_succeeded`。
-  2. Classify phase：呼叫 `classify_news()`，填入 `subcategory`、`classification_succeeded`。
+  2. Classify phase：呼叫 `classify_news()`，填入 `subcategory`、`classification_succeeded`；成功時接著呼叫 `align_summary_to_tags()`，必要時更新 `content`。
 - 若 scrape 失敗，不會把失敗訊息當英文證據送入分類 prompt。
-- 回傳 `ProcessingSummary(total_count, scrape_failed_count, classification_fallback_count)`。
+- 回傳 `ProcessingSummary(total_count, scrape_failed_count, classification_fallback_count, summary_aligned_count)`。
 
 ### `services/report_service.py`
 
@@ -136,6 +144,15 @@ api.py POST /process
 - 使用 `@dataclass(frozen=True)` 定義 `Settings`。
 - `get_settings()` 從環境變數讀取設定。
 - 若環境變數不存在，會使用程式內 fallback 預設值。這些預設值與 `.env.example` 對齊，但可能不適合所有部署環境。
+- `CLASSIFY_BASE_URL`／`CLASSIFY_MODEL` 供分類使用，缺少時退回主模型；摘要對齊使用 `VLLM_BASE_URL`／`VLLM_MODEL` 與 `SUMMARY_ALIGN_MAX_TOKENS`。
+- `VLLM_MAX_TOKENS` 仍會載入 `Settings`，但目前主流程沒有把它傳入任何模型呼叫。
+
+### `services/audit_archive.py`
+
+- Streamlit 與 FastAPI 在報告成功產出後，保存 `input.docx`、`output.xlsx` 與 `metadata.json`。
+- 每筆資料夾以 UTC 時間與輸入檔 SHA-256 前綴命名，避免同名或併發處理互相覆蓋。
+- 稽核寫入失敗只記錄 log，不阻斷使用者下載。
+- 每次新增稽核資料時，清除超過 `AUDIT_RETENTION_DAYS` 的舊資料夾。
 
 ## 設定
 
@@ -151,10 +168,14 @@ VLLM_MAX_TOKENS
 CLASSIFY_BASE_URL
 CLASSIFY_MODEL
 CLASSIFY_MAX_TOKENS
+SUMMARY_ALIGN_MAX_TOKENS
 
 SCRAPE_DELAY_SECONDS
 CLASSIFY_DELAY_SECONDS
 REQUEST_TIMEOUT_SECONDS
+
+AUDIT_ARCHIVE_DIR
+AUDIT_RETENTION_DAYS
 ```
 
 分類專用設定未提供時，`CLASSIFY_BASE_URL` 與 `CLASSIFY_MODEL` 會 fallback 到主模型設定。
@@ -169,6 +190,7 @@ REQUEST_TIMEOUT_SECONDS
   - `8001`：FastAPI
   - `8501`：Streamlit
 - `Dockerfile` healthcheck 呼叫 `http://127.0.0.1:8001/health`。
+- `docker-compose.yml` 將主機 `./audit` 掛載到容器 `/app/audit`，容器重建後仍保留稽核檔案。
 
 ## 測試結構
 
@@ -177,13 +199,14 @@ REQUEST_TIMEOUT_SECONDS
 - `tests/test_api.py`
 - `tests/test_classifier.py`
 - `tests/test_config.py`
+- `tests/test_audit_archive.py`
 - `tests/test_excel_exporter.py`
 - `tests/test_processor.py`
 - `tests/test_scraper.py`
 - `tests/test_url_security.py`
 - `tests/test_word_parser.py`
 
-這些是測試檔案結構，不代表覆蓋率百分比。若需要覆蓋率，應另外執行 coverage 工具產生報告。
+目前共有 9 個測試模組、47 個測試案例。這是測試檔案與案例數，不代表覆蓋率百分比；若需要覆蓋率，應另外執行 coverage 工具產生報告。
 
 ## 已知風險與注意事項
 

@@ -267,6 +267,23 @@ def classify_news(
             _mark_vllm_available(vllm_base_url)
             return result, True
         logger.warning("vLLM returned invalid tags for title: %s", title)
+    except requests.HTTPError as error:
+        status_code = error.response.status_code if error.response is not None else None
+        if status_code is not None and 400 <= status_code < 500 and status_code != 429:
+            logger.exception(
+                "vLLM classification request rejected for title: %s; "
+                "status_code=%s; continuing with next item",
+                title,
+                status_code,
+            )
+        else:
+            _mark_vllm_unavailable(vllm_base_url)
+            logger.exception(
+                "vLLM classification service unavailable for title: %s; "
+                "pausing attempts for %s seconds",
+                title,
+                VLLM_UNAVAILABLE_COOLDOWN_SECONDS,
+            )
     except requests.RequestException:
         _mark_vllm_unavailable(vllm_base_url)
         logger.exception(

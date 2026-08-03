@@ -68,6 +68,9 @@ def build_excel_report(news_list, week_date):
     for index, news in enumerate(news_list):
         en_title = news.get("en_title", "")
         headline = f"{news['zh_title']}\n{en_title}" if en_title else news["zh_title"]
+        en_content = news.get("en_content", "")
+        if not str(en_content or "").strip():
+            en_content = "來源內文為空，請手動確認來源網址。"
         row_data = [
             f"{week_date}_{index + 1:02d}",
             headline,
@@ -80,13 +83,14 @@ def build_excel_report(news_list, week_date):
             extract_source(news.get("source_url", "")),
             news.get("source_url", ""),
             news.get("content", ""),
-            news.get("en_content", ""),
+            en_content,
             0,
             "",
         ]
         for column, value in enumerate(row_data, 1):
             cell = worksheet.cell(row=index + 2, column=column, value=_sanitize(value))
             cell.alignment = Alignment(wrap_text=True, vertical="top")
+        worksheet.row_dimensions[index + 2].height = 60
 
     widths = [18, 40, 14, 12, 30, 30, 35, 12, 15, 45, 60, 60, 10, 12]
     for column, width in enumerate(widths, 1):

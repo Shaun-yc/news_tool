@@ -49,7 +49,6 @@ DEFAULT_HEADERS = {
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
     "Sec-Fetch-Dest": "document",
@@ -142,6 +141,11 @@ def _clean_article_text(text):
         if cleaned:
             cleaned_lines.append(cleaned)
     return "\n".join(cleaned_lines)
+
+
+def _has_excessive_decode_errors(text):
+    text = str(text or "")
+    return text.count("\ufffd") > max(3, len(text) // 100)
 
 
 def _get_public_response(session, url, headers, timeout):
@@ -306,7 +310,10 @@ def _scrape_with_requests(session, url, timeout):
     response = _get_public_response(session, url, DEFAULT_HEADERS, timeout)
     response.raise_for_status()
     response.encoding = response.apparent_encoding
-    return _extract_article(response.text, url=url)
+    response_text = response.text
+    if _has_excessive_decode_errors(response_text):
+        raise ValueError("來源網站回應包含無法解碼的內容")
+    return _extract_article(response_text, url=url)
 
 
 def _dismiss_cookie_consent(page):

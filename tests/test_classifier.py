@@ -202,6 +202,41 @@ class ClassifierTests(unittest.TestCase):
         self.assertFalse(succeeded)
         self.assertIn("vLLM classification failed for title: 標題", logs.output[0])
 
+    @patch("services.classifier._classify_with_vllm")
+    def test_classify_news_continues_after_bad_request(self, vllm):
+        response = requests.Response()
+        response.status_code = 400
+        vllm.side_effect = [
+            requests.HTTPError("400 Client Error", response=response),
+            "碳定價;氣候法制",
+        ]
+
+        with self.assertLogs("services.classifier", level="ERROR"):
+            first_tags, first_succeeded = classify_news(
+                "第一則",
+                "摘要",
+                "http://192.168.0.92:8001",
+                "gemma-4-e4b",
+                300,
+                0,
+                256,
+            )
+        second_tags, second_succeeded = classify_news(
+            "第二則",
+            "摘要",
+            "http://192.168.0.92:8001",
+            "gemma-4-e4b",
+            300,
+            0,
+            256,
+        )
+
+        self.assertEqual(first_tags, REVIEW_REQUIRED)
+        self.assertFalse(first_succeeded)
+        self.assertEqual(second_tags, "碳定價;氣候法制")
+        self.assertTrue(second_succeeded)
+        self.assertEqual(vllm.call_count, 2)
+
     @patch("services.classifier.time.monotonic")
     @patch("services.classifier._classify_with_vllm")
     def test_classify_news_opens_cooldown_when_vllm_service_is_unavailable(

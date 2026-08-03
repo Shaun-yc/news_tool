@@ -35,6 +35,10 @@ class ShortResponse(FakeResponse):
     """
 
 
+class CorruptResponse(FakeResponse):
+    text = f"<html><body><article><p>{'�' * 300}</p></article></body></html>"
+
+
 class FakeSession:
     def get(self, url, headers, timeout, allow_redirects):
         return FakeResponse()
@@ -202,11 +206,33 @@ class ScraperTests(unittest.TestCase):
 
     @patch("services.scraper.validate_public_url")
     def test_scrape_article_extracts_expected_fields(self, validate_public_url):
-        result = scrape_article(FakeSession(), "https://www.example.com/news/1")
+        session = FakeSession()
+        with patch.object(session, "get", wraps=session.get) as get:
+            result = scrape_article(session, "https://www.example.com/news/1")
 
         self.assertEqual(result["en_title"], "Carbon market update")
         self.assertEqual(result["pubdate"], "2026-05-31")
         self.assertIn("long enough", result["en_content"])
+        self.assertNotIn("br", get.call_args.kwargs["headers"].get("Accept-Encoding", ""))
+
+    @patch("services.scraper._scrape_with_playwright")
+    @patch("services.scraper.validate_public_url")
+    def test_scrape_article_uses_playwright_when_requests_content_is_corrupt(
+        self, validate_public_url, scrape_with_playwright
+    ):
+        scrape_with_playwright.return_value = {
+            "en_title": "Rendered title",
+            "pubdate": "2026-07-31",
+            "en_content": "Rendered article content " * 10,
+            "scrape_succeeded": True,
+        }
+
+        session = FakeSession()
+        with patch.object(session, "get", return_value=CorruptResponse()):
+            result = scrape_article(session, "https://www.example.com/news/1")
+
+        self.assertEqual(result["en_title"], "Rendered title")
+        scrape_with_playwright.assert_called_once_with("https://www.example.com/news/1", 15)
 
     @patch("services.scraper._scrape_with_playwright")
     @patch("services.scraper.validate_public_url")

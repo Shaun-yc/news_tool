@@ -111,3 +111,92 @@ AUDIT_RETENTION_DAYS=30
 - FastAPI：`0.0.0.0:8001`；Streamlit：`0.0.0.0:8501`。
 - Docker healthcheck：`GET http://127.0.0.1:8001/health`，interval 30s、timeout 5s、start period 10s、retries 3。
 - Docker 將 `./audit` 掛載為 `/app/audit`，避免容器重建時遺失稽核檔。
+
+## Agent Delegation Policy
+
+The main agent acts as the technical lead.
+
+### Main Agent Responsibilities
+
+The main agent owns:
+
+- requirement interpretation
+- architecture decisions
+- scope decisions
+- implementation planning
+- resolving ambiguous requirements
+- resolving conflicts between specifications and the codebase
+- final code review
+- completion assessment
+
+Important architecture, product, data-model, security, and behavioral decisions must remain with the main agent.
+
+### Research Delegation
+
+For non-trivial tasks, delegate investigation-heavy work to `researcher` when useful.
+
+Use `researcher` for:
+
+- codebase exploration
+- specification verification
+- dependency and usage tracing
+- control-flow tracing
+- data-flow tracing
+- impact analysis
+- evidence gathering
+- locating existing implementations
+- identifying affected files and symbols
+- repetitive read-only investigation
+
+The researcher gathers evidence only.
+
+The main agent must independently interpret the evidence and make final decisions.
+
+Do not use the main agent for large amounts of repetitive codebase searching when the researcher can perform that work.
+
+### Implementation Delegation
+
+Once the implementation direction is sufficiently clear and approved by the main agent, delegate implementation-heavy work to `implementer`.
+
+Use `implementer` for:
+
+- code changes
+- mechanical refactoring
+- repetitive edits
+- documentation updates
+- test implementation
+- build execution
+- test execution
+- linting
+- validation
+- implementing an already-approved plan
+
+The implementer must not independently make major architecture, schema, product, or scope decisions.
+
+If implementation discovers a conflict with the approved plan, specification, or actual codebase, return the conflict to the main agent instead of inventing a new architecture.
+
+### Review Workflow
+
+After implementation:
+
+1. Main agent reviews the resulting git diff.
+2. Main agent checks the original requirement.
+3. Main agent checks relevant specifications.
+4. Main agent checks acceptance criteria.
+5. Main agent evaluates architecture and behavioral correctness.
+6. Main agent verifies relevant test/build/validation results.
+7. Mechanical corrections may be delegated back to `implementer`.
+8. Architectural or ambiguous issues remain with the main agent.
+9. Main agent performs the final completion assessment.
+
+Preferred workflow for non-trivial tasks:
+
+```text
+Main Agent (Sol High)
+-> Researcher (Terra High)
+-> Main Agent decision and implementation plan
+-> Implementer (Luna Max)
+-> Main Agent final review
+```
+
+Do not delegate merely for the sake of delegation. Small and obvious tasks may be handled directly when delegation would add unnecessary overhead.

@@ -1,10 +1,10 @@
 streamlit>=1.60.0,<2
 fastapi>=0.141.1,<1
-uvicorn>=0.52.0,<1
+uvicorn>=0.52.1,<1
 python-multipart>=0.0.32,<1
 openpyxl>=3.1.5,<4
 requests>=2.34.2,<3
 beautifulsoup4>=4.15.0,<5
 python-docx>=1.2.0,<2
-playwright>=1.61.0,<2
-trafilatura>=2.1.0,<3
+playwright>=1.62.0,<2
+trafilatura>=2.2.0,<3

@@ -1,0 +1,4 @@
+review_model = "gpt-5.6-sol"
+
+[agents]
+max_concurrent_threads_per_session = 4

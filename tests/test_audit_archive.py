@@ -5,11 +5,46 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from services.audit_archive import archive_report
+from services.audit_archive import archive_report, archive_report_safely
 from services.processor import ProcessingSummary
 
 
 class AuditArchiveTests(unittest.TestCase):
+    def test_archive_report_safely_returns_archive_path(self):
+        expected_path = Path("audit-id")
+
+        def archive_fn(*args):
+            return expected_path
+
+        result = archive_report_safely(
+            archive_fn,
+            b"docx",
+            "input.docx",
+            b"xlsx",
+            "output.xlsx",
+            ProcessingSummary(1, 0, 0, 0),
+            "audit",
+            30,
+        )
+
+        self.assertEqual(result, expected_path)
+
+    def test_archive_report_safely_propagates_unexpected_errors(self):
+        def archive_fn(*args):
+            raise RuntimeError("unexpected")
+
+        with self.assertRaisesRegex(RuntimeError, "unexpected"):
+            archive_report_safely(
+                archive_fn,
+                b"docx",
+                "input.docx",
+                b"xlsx",
+                "output.xlsx",
+                ProcessingSummary(1, 0, 0, 0),
+                "audit",
+                30,
+            )
+
     def test_archive_report_saves_input_output_and_metadata(self):
         summary = ProcessingSummary(
             total_count=3,
@@ -39,7 +74,7 @@ class AuditArchiveTests(unittest.TestCase):
         summary = ProcessingSummary(1, 0, 0, 0)
         with tempfile.TemporaryDirectory() as temp_dir:
             archive_root = Path(temp_dir)
-            expired_dir = archive_root / "expired"
+            expired_dir = archive_root / "20260701T000000.000000Z_0123456789ab"
             expired_dir.mkdir()
             unrelated_file = archive_root / "keep.txt"
             unrelated_file.write_text("keep", encoding="utf-8")

@@ -22,6 +22,7 @@ Application / Orchestration
 
 Domain Services
   services/word_parser.py      .docx parsing
+  services/news_types.py       static TypedDict contracts for pipeline dictionaries
   services/scraper.py          requests-first web scraping with Playwright fallback
   services/classifier.py       vLLM classification, tag normalization, summary alignment
   services/summarizer.py       unused legacy summary helper (not in the main flow)
@@ -47,7 +48,8 @@ app.py
             -> classifier.classify_news(...)
             -> classifier.align_summary_to_tags(...) when classification succeeds
        -> excel_exporter.build_excel_report(news_list, week_date)
-  -> audit_archive.archive_report(input_bytes, output_bytes, metadata)
+  -> audit_archive.archive_report_safely(...)
+       -> audit_archive.archive_report(...)
   -> st.download_button(...)
 ```
 
@@ -61,7 +63,8 @@ api.py POST /process
             -> processor.process_news(...)
                  -> scrape -> classify -> summary alignment
             -> excel_exporter.build_excel_report(...)
-  -> audit_archive.archive_report(input_bytes, output_bytes, metadata)
+  -> audit_archive.archive_report_safely(...)
+       -> audit_archive.archive_report(...)
   -> StreamingResponse(.xlsx)
 ```
 
@@ -197,16 +200,18 @@ AUDIT_RETENTION_DAYS
 測試位於 `tests/`，主要對應 service 模組：
 
 - `tests/test_api.py`
+- `tests/test_api_http_baseline.py`
 - `tests/test_classifier.py`
 - `tests/test_config.py`
 - `tests/test_audit_archive.py`
 - `tests/test_excel_exporter.py`
 - `tests/test_processor.py`
+- `tests/test_report_service.py`
 - `tests/test_scraper.py`
 - `tests/test_url_security.py`
 - `tests/test_word_parser.py`
 
-目前共有 9 個測試模組、47 個測試案例。這是測試檔案與案例數，不代表覆蓋率百分比；若需要覆蓋率，應另外執行 coverage 工具產生報告。
+目前共有 11 個測試模組、69 個測試案例，另有 5 個參數化子測試。這是測試檔案與案例數，不代表覆蓋率百分比；若需要覆蓋率，應另外執行 coverage 工具產生報告。
 
 ## 已知風險與注意事項
 

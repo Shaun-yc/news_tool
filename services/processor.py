@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 import time
+from typing import Any, Callable
 
 import requests
 
 from services.classifier import align_summary_to_tags, classify_news
 from services.config import Settings
+from services.news_types import NewsItem
 from services.scraper import scrape_article
 
 logger = logging.getLogger(__name__)
@@ -19,13 +23,15 @@ class ProcessingSummary:
 
 
 def process_news(
-    news_list,
+    news_list: list[NewsItem],
     settings: Settings,
-    on_scrape_progress=lambda current, total, news: None,
-    on_classify_progress=lambda current, total, news: None,
-    session_factory=requests.Session,
-    sleep=time.sleep,
-):
+    on_scrape_progress: Callable[[int, int, NewsItem], None] =
+        lambda current, total, news: None,
+    on_classify_progress: Callable[[int, int, NewsItem], None] =
+        lambda current, total, news: None,
+    session_factory: Callable[..., Any] = requests.Session,
+    sleep: Callable[[float], Any] = time.sleep,
+) -> ProcessingSummary:
     """Enrich parsed news items with source content and AI classifications."""
     total_count = len(news_list)
     scrape_failed_count = 0

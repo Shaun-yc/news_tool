@@ -4,8 +4,9 @@ import re
 
 import streamlit as st
 
-from services.audit_archive import archive_report
+from services.audit_archive import archive_report, archive_report_safely
 from services.config import get_settings
+from services.news_types import NewsItem
 from services.report_service import build_report_from_news_list, get_week_date
 from services.word_parser import parse_word_news
 
@@ -81,13 +82,13 @@ if uploaded_file is not None:
             scrape_progress = st.progress(0, text="準備擷取來源網站")
             classify_progress = st.progress(0, text="等待分類")
 
-            def update_scrape_progress(current, total, news):
+            def update_scrape_progress(current: int, total: int, news: NewsItem) -> None:
                 scrape_progress.progress(
                     current / total,
                     text=f"擷取來源網站：{current}/{total} - {news['zh_title'][:24]}",
                 )
 
-            def update_classify_progress(current, total, news):
+            def update_classify_progress(current: int, total: int, news: NewsItem) -> None:
                 classify_progress.progress(
                     current / total,
                     text=f"執行新聞分類：{current}/{total} - {news['zh_title'][:24]}",
@@ -102,19 +103,16 @@ if uploaded_file is not None:
             )
 
             output_bytes = report.getvalue()
-            try:
-                audit_dir = archive_report(
-                    input_bytes,
-                    uploaded_file.name,
-                    output_bytes,
-                    output_filename,
-                    summary,
-                    settings.audit_archive_dir,
-                    settings.audit_retention_days,
-                )
-                logger.info("Audit files saved to %s", audit_dir)
-            except OSError:
-                logger.exception("Failed to save audit files")
+            archive_report_safely(
+                archive_report,
+                input_bytes,
+                uploaded_file.name,
+                output_bytes,
+                output_filename,
+                summary,
+                settings.audit_archive_dir,
+                settings.audit_retention_days,
+            )
 
             st.session_state["report"] = output_bytes
             st.session_state["output_filename"] = output_filename

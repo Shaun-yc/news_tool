@@ -1,19 +1,28 @@
+from __future__ import annotations
+
 import hashlib
 import json
+import logging
+import re
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, Callable
+
+
+_AUDIT_ID_PATTERN = re.compile(r"\d{8}T\d{6}\.\d{6}Z_[0-9a-f]{12}")
+logger = logging.getLogger(__name__)
 
 
 def archive_report(
-    input_bytes,
-    input_filename,
-    output_bytes,
-    output_filename,
-    summary,
-    archive_dir,
-    retention_days,
-):
+    input_bytes: bytes,
+    input_filename: str,
+    output_bytes: bytes,
+    output_filename: str,
+    summary: Any,
+    archive_dir: str | Path,
+    retention_days: int,
+) -> Path:
     archive_root = Path(archive_dir)
     archive_root.mkdir(parents=True, exist_ok=True)
     _remove_expired_archives(archive_root, retention_days)
@@ -44,10 +53,41 @@ def archive_report(
     return audit_dir
 
 
-def _remove_expired_archives(archive_root, retention_days):
+def archive_report_safely(
+    archive_fn: Callable[..., Path],
+    input_bytes: bytes,
+    input_filename: str,
+    output_bytes: bytes,
+    output_filename: str,
+    summary: Any,
+    archive_dir: str | Path,
+    retention_days: int,
+) -> Path | None:
+    """Archive a completed report without failing the report response on I/O errors."""
+    try:
+        audit_dir = archive_fn(
+            input_bytes,
+            input_filename,
+            output_bytes,
+            output_filename,
+            summary,
+            archive_dir,
+            retention_days,
+        )
+    except OSError:
+        logger.exception("Failed to save audit files")
+        return None
+
+    logger.info("Audit files saved to %s", audit_dir)
+    return audit_dir
+
+
+def _remove_expired_archives(archive_root: Path, retention_days: int) -> None:
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     for path in archive_root.iterdir():
         if not path.is_dir():
+            continue
+        if _AUDIT_ID_PATTERN.fullmatch(path.name) is None:
             continue
         modified_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
         if modified_at < cutoff:

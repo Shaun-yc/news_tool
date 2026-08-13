@@ -64,6 +64,139 @@ class RedirectSession:
         return RedirectResponse()
 
 
+class FakeNavigationRequest:
+    def __init__(self, url, navigation=True):
+        self.url = url
+        self._navigation = navigation
+
+    def is_navigation_request(self):
+        return self._navigation
+
+
+class FakeRoute:
+    def __init__(self, request, sent_urls, aborted_urls):
+        self.request = request
+        self._sent_urls = sent_urls
+        self._aborted_urls = aborted_urls
+        self.aborted = False
+        self.continued = False
+
+    def abort(self):
+        self.aborted = True
+        self._aborted_urls.append(self.request.url)
+
+    def continue_(self):
+        self.continued = True
+        self._sent_urls.append(self.request.url)
+
+
+class FakePlaywrightPage:
+    def __init__(self, context, sent_urls, aborted_urls):
+        self._context = context
+        self._sent_urls = sent_urls
+        self._aborted_urls = aborted_urls
+        self.url = ""
+
+    def add_init_script(self, script):
+        return None
+
+    def goto(self, url, wait_until, timeout):
+        self.url = url
+        self._navigate(url)
+        for resource_url in (
+            "http://127.0.0.1/private.png",
+            "https://93.184.216.34/public.js",
+            "data:image/png;base64,AAAA",
+        ):
+            self._navigate(resource_url, navigation=False)
+        redirect_url = "http://127.0.0.1/admin"
+        self._navigate(redirect_url)
+        raise RuntimeError("private navigation would reach the browser")
+
+    def _navigate(self, url, navigation=True):
+        handler = self._context.route_handlers.get("**/*")
+        if handler is None:
+            self._sent_urls.append(url)
+            return
+
+        route = FakeRoute(
+            FakeNavigationRequest(url, navigation=navigation),
+            self._sent_urls,
+            self._aborted_urls,
+        )
+        handler(route)
+        if not route.aborted and not route.continued:
+            self._sent_urls.append(url)
+
+    def wait_for_load_state(self, state, timeout):
+        return None
+
+    def wait_for_timeout(self, timeout):
+        return None
+
+    def query_selector(self, selector):
+        return None
+
+    def content(self):
+        return "<html><body></body></html>"
+
+
+class FakePlaywrightContext:
+    def __init__(self, sent_urls, aborted_urls):
+        self.route_handlers = {}
+        self._sent_urls = sent_urls
+        self._aborted_urls = aborted_urls
+        self.new_context_kwargs = None
+
+    def route(self, pattern, handler):
+        self.route_handlers[pattern] = handler
+
+    def new_page(self):
+        return FakePlaywrightPage(self, self._sent_urls, self._aborted_urls)
+
+
+class FakePlaywrightBrowser:
+    def __init__(self, sent_urls, aborted_urls):
+        self._sent_urls = sent_urls
+        self._aborted_urls = aborted_urls
+        self.context = None
+
+    def new_context(self, **kwargs):
+        self.context = FakePlaywrightContext(self._sent_urls, self._aborted_urls)
+        self.context.new_context_kwargs = kwargs
+        return self.context
+
+    def close(self):
+        return None
+
+
+class FakePlaywrightChromium:
+    def __init__(self, sent_urls, aborted_urls):
+        self._sent_urls = sent_urls
+        self._aborted_urls = aborted_urls
+        self.browser = None
+
+    def launch(self, **kwargs):
+        self.browser = FakePlaywrightBrowser(self._sent_urls, self._aborted_urls)
+        return self.browser
+
+
+class FakePlaywrightSdk:
+    def __init__(self, sent_urls, aborted_urls):
+        self.chromium = FakePlaywrightChromium(sent_urls, aborted_urls)
+
+
+class FakeSyncPlaywright:
+    def __init__(self, sent_urls, aborted_urls):
+        self.sdk = FakePlaywrightSdk(sent_urls, aborted_urls)
+
+    def __enter__(self):
+        return self.sdk
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+
 class ScraperTests(unittest.TestCase):
     def test_extract_article_uses_json_ld_article_body(self):
         result = _extract_article(
@@ -267,6 +400,56 @@ class ScraperTests(unittest.TestCase):
 
         self.assertTrue(result["scrape_succeeded"])
         scrape_with_playwright.assert_called_once_with("https://www.example.com/news/1", 15)
+
+    def test_scrape_article_blocks_private_playwright_redirects(self):
+        public_url = "https://www.example.com/news/1"
+        private_url = "http://127.0.0.1/admin"
+        sent_urls = []
+        aborted_urls = []
+        fake_playwright = FakeSyncPlaywright(sent_urls, aborted_urls)
+
+        with patch("services.scraper.sync_playwright", return_value=fake_playwright):
+            result = scrape_article(FailingSession(), public_url)
+
+        self.assertEqual(
+            result,
+            {
+                "en_title": "",
+                "pubdate": "",
+                "en_content": "無法自動爬取原文，請手動確認來源網址。",
+                "scrape_succeeded": False,
+            },
+        )
+        self.assertIn(public_url, sent_urls)
+        self.assertNotIn(private_url, sent_urls)
+        self.assertIn(private_url, aborted_urls)
+
+    def test_scrape_article_blocks_private_playwright_subresources(self):
+        public_url = "https://www.example.com/news/1"
+        private_resource_url = "http://127.0.0.1/private.png"
+        public_resource_url = "https://93.184.216.34/public.js"
+        data_resource_url = "data:image/png;base64,AAAA"
+        sent_urls = []
+        aborted_urls = []
+        fake_playwright = FakeSyncPlaywright(sent_urls, aborted_urls)
+
+        with patch("services.scraper.sync_playwright", return_value=fake_playwright):
+            result = scrape_article(FailingSession(), public_url)
+
+        self.assertEqual(
+            result,
+            {
+                "en_title": "",
+                "pubdate": "",
+                "en_content": "無法自動爬取原文，請手動確認來源網址。",
+                "scrape_succeeded": False,
+            },
+        )
+        self.assertIn(public_url, sent_urls)
+        self.assertNotIn(private_resource_url, sent_urls)
+        self.assertIn(private_resource_url, aborted_urls)
+        self.assertIn(public_resource_url, sent_urls)
+        self.assertIn(data_resource_url, sent_urls)
 
     @patch("services.scraper.validate_public_url")
     def test_scrape_article_returns_failure_when_url_is_rejected(self, validate_public_url):

@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import re
 
 from docx import Document
+
+from services.news_types import NewsItem
 
 
 CATEGORY_TITLES = [
@@ -10,7 +14,7 @@ CATEGORY_TITLES = [
 ]
 
 
-def parse_word_news(docx_file_object):
+def parse_word_news(docx_file_object: object) -> list[NewsItem]:
     """Parse the summary table and article paragraphs from an uploaded Word file."""
     doc = Document(docx_file_object)
     titles_from_table = []

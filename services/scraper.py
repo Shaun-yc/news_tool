@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import logging
 import json
 import re
 from datetime import datetime
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import trafilatura
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
+from services.news_types import ScrapedFields
 from services.url_security import validate_public_url
 
 
@@ -83,7 +87,7 @@ _COOKIE_ACCEPT_SELECTORS = [
 ]
 
 
-def _failure_result(message="無法自動爬取原文，請手動確認來源網址。"):
+def _failure_result(message: str = "無法自動爬取原文，請手動確認來源網址。") -> ScrapedFields:
     return {
         "en_title": "",
         "pubdate": "",
@@ -223,7 +227,7 @@ def _extract_published_date(soup, structured_candidates):
     return ""
 
 
-def _extract_article(html, url=""):
+def _extract_article(html: str, url: str = "") -> ScrapedFields:
     soup = BeautifulSoup(html, "html.parser")
     result = {"en_title": "", "pubdate": "", "en_content": "", "scrape_succeeded": False}
 
@@ -306,7 +310,7 @@ def _extract_article(html, url=""):
     return result
 
 
-def _scrape_with_requests(session, url, timeout):
+def _scrape_with_requests(session: Any, url: str, timeout: int) -> ScrapedFields:
     response = _get_public_response(session, url, DEFAULT_HEADERS, timeout)
     response.raise_for_status()
     response.encoding = response.apparent_encoding
@@ -329,7 +333,7 @@ def _dismiss_cookie_consent(page):
             pass
 
 
-def _scrape_with_playwright(url, timeout):
+def _scrape_with_playwright(url: str, timeout: int) -> ScrapedFields:
     validate_public_url(url)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -377,7 +381,7 @@ def _scrape_with_playwright(url, timeout):
     return _extract_article(html, url=url)
 
 
-def scrape_article(session, url, timeout=7):
+def scrape_article(session: Any, url: str, timeout: int = 7) -> ScrapedFields:
     """Fetch the English title, publication date, and article body from a URL."""
     if not url or not url.strip():
         logger.info("Article has no source URL; skipping web scraping")

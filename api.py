@@ -7,7 +7,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from services.audit_archive import archive_report
+from services.audit_archive import archive_report, archive_report_safely
 from services.config import get_settings
 from services.report_service import build_weekly_news_report
 
@@ -100,19 +100,16 @@ def process_weekly_news(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="處理失敗，請查看服務日誌") from error
 
     output_bytes = report.getvalue()
-    try:
-        audit_dir = archive_report(
-            input_bytes,
-            file.filename,
-            output_bytes,
-            output_filename,
-            summary,
-            settings.audit_archive_dir,
-            settings.audit_retention_days,
-        )
-        logger.info("Audit files saved to %s", audit_dir)
-    except OSError:
-        logger.exception("Failed to save audit files")
+    archive_report_safely(
+        archive_report,
+        input_bytes,
+        file.filename,
+        output_bytes,
+        output_filename,
+        summary,
+        settings.audit_archive_dir,
+        settings.audit_retention_days,
+    )
 
     headers = {
         "Content-Disposition": (

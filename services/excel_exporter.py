@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 import io
 import re
@@ -6,6 +8,8 @@ from urllib.parse import urlparse
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+
+from services.news_types import NewsItem
 
 _ILLEGAL_XML_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -50,7 +54,7 @@ def format_date(raw_date):
         return raw_date
 
 
-def build_excel_report(news_list, week_date):
+def build_excel_report(news_list: list[NewsItem], week_date: str) -> io.BytesIO:
     """Build the standard 14-column Excel report and return an in-memory file."""
     excel_buffer = io.BytesIO()
     workbook = openpyxl.Workbook()

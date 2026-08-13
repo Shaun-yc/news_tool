@@ -1,5 +1,7 @@
 import io
 import logging
+from xml.etree import ElementTree
+from zipfile import BadZipFile, ZipFile, is_zipfile
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -32,6 +34,55 @@ def process_weekly_news(file: UploadFile = File(...)):
     try:
         settings = get_settings()
         input_bytes = file.file.read()
+        if is_zipfile(io.BytesIO(input_bytes)):
+            with ZipFile(io.BytesIO(input_bytes)) as package:
+                required_members = {
+                    "[Content_Types].xml",
+                    "_rels/.rels",
+                    "word/document.xml",
+                }
+                if not required_members.issubset(package.namelist()):
+                    raise ValueError("請上傳有效的 .docx 週新聞檔案")
+                try:
+                    content_types_root = ElementTree.fromstring(
+                        package.read("[Content_Types].xml")
+                    )
+                    relationships_root = ElementTree.fromstring(package.read("_rels/.rels"))
+                    document_root = ElementTree.fromstring(package.read("word/document.xml"))
+                except (ElementTree.ParseError, LookupError) as error:
+                    raise ValueError("請上傳有效的 .docx 週新聞檔案") from error
+
+                content_types_namespace = "http://schemas.openxmlformats.org/package/2006/content-types"
+                document_content_type = (
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+                )
+                has_document_content_type = any(
+                    child.tag == f"{{{content_types_namespace}}}Override"
+                    and child.attrib.get("PartName") == "/word/document.xml"
+                    and child.attrib.get("ContentType") == document_content_type
+                    for child in content_types_root
+                )
+
+                relationships_namespace = "http://schemas.openxmlformats.org/package/2006/relationships"
+                office_document_relationship = (
+                    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+                )
+                has_document_relationship = any(
+                    child.tag == f"{{{relationships_namespace}}}Relationship"
+                    and child.attrib.get("Type") == office_document_relationship
+                    and child.attrib.get("Target") in {"word/document.xml", "/word/document.xml"}
+                    for child in relationships_root
+                )
+
+                if (
+                    content_types_root.tag != f"{{{content_types_namespace}}}Types"
+                    or not has_document_content_type
+                    or relationships_root.tag != f"{{{relationships_namespace}}}Relationships"
+                    or not has_document_relationship
+                    or document_root.tag
+                    != "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}document"
+                ):
+                    raise ValueError("請上傳有效的 .docx 週新聞檔案")
         report, output_filename, summary = build_weekly_news_report(
             io.BytesIO(input_bytes),
             file.filename,
@@ -39,6 +90,11 @@ def process_weekly_news(file: UploadFile = File(...)):
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except BadZipFile as error:
+        raise HTTPException(
+            status_code=400,
+            detail="請上傳有效的 .docx 週新聞檔案",
+        ) from error
     except Exception as error:
         logger.exception("Weekly news API processing failed")
         raise HTTPException(status_code=500, detail="處理失敗，請查看服務日誌") from error

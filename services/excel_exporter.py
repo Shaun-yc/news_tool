@@ -74,7 +74,7 @@ def build_excel_report(news_list, week_date):
         row_data = [
             f"{week_date}_{index + 1:02d}",
             headline,
-            "淨零推動組",
+            "碳費推動組",
             "永智顧問",
             "碳市場國際合作與企業能力建構計畫",
             "排放管理;國際事務;調適韌性;減量交易",

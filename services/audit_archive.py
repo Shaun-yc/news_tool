@@ -1,8 +1,12 @@
 import hashlib
 import json
+import re
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+
+_AUDIT_ID_PATTERN = re.compile(r"\d{8}T\d{6}\.\d{6}Z_[0-9a-f]{12}")
 
 
 def archive_report(
@@ -48,6 +52,8 @@ def _remove_expired_archives(archive_root, retention_days):
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     for path in archive_root.iterdir():
         if not path.is_dir():
+            continue
+        if _AUDIT_ID_PATTERN.fullmatch(path.name) is None:
             continue
         modified_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
         if modified_at < cutoff:

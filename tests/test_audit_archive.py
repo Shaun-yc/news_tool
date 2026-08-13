@@ -39,7 +39,7 @@ class AuditArchiveTests(unittest.TestCase):
         summary = ProcessingSummary(1, 0, 0, 0)
         with tempfile.TemporaryDirectory() as temp_dir:
             archive_root = Path(temp_dir)
-            expired_dir = archive_root / "expired"
+            expired_dir = archive_root / "20260701T000000.000000Z_0123456789ab"
             expired_dir.mkdir()
             unrelated_file = archive_root / "keep.txt"
             unrelated_file.write_text("keep", encoding="utf-8")

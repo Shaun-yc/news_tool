@@ -2,7 +2,7 @@ import logging
 import json
 import re
 from datetime import datetime
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import trafilatura
 from bs4 import BeautifulSoup
@@ -344,7 +344,22 @@ def _scrape_with_playwright(url, timeout):
                     "Accept": DEFAULT_HEADERS["Accept"],
                     "Accept-Language": DEFAULT_HEADERS["Accept-Language"],
                 },
+                service_workers="block",
             )
+
+            def guard_request(route):
+                request = route.request
+                if urlparse(request.url).scheme.lower() not in {"http", "https"}:
+                    route.continue_()
+                    return
+                try:
+                    validate_public_url(request.url)
+                except ValueError:
+                    route.abort()
+                    return
+                route.continue_()
+
+            context.route("**/*", guard_request)
             page = context.new_page()
             # 注入 stealth script，在每個頁面載入前執行
             page.add_init_script(_STEALTH_SCRIPT)

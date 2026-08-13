@@ -48,7 +48,7 @@ def parse_word_news(docx_file_object: object) -> list[NewsItem]:
         source_url = ""
 
         for index, text in enumerate(paragraphs_text):
-            if text != target_title and not (len(target_title) > 10 and target_title[:10] in text):
+            if text != target_title and text != f",{target_title}":
                 continue
 
             for following_text in paragraphs_text[index + 1 :]:

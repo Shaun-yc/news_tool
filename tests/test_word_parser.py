@@ -69,7 +69,7 @@ class WordParserTests(unittest.TestCase):
             ],
         )
 
-    def test_parse_word_news_uses_current_prefix_match_for_titles_sharing_first_ten_chars(self):
+    def test_parse_word_news_matches_each_title_exactly_when_prefixes_are_shared(self):
         document = Document()
         table = document.add_table(rows=3, cols=2)
         table.cell(0, 0).text = "項次"
@@ -97,8 +97,8 @@ class WordParserTests(unittest.TestCase):
                 },
                 {
                     "zh_title": "能源政策共同前綴測試乙新聞",
-                    "content": "共享前綴測試的第一篇摘要。",
-                    "source_url": "https://www.example.com/news/prefix-first",
+                    "content": "共享前綴測試的第二篇摘要。",
+                    "source_url": "https://www.example.com/news/prefix-second",
                 },
             ],
         )

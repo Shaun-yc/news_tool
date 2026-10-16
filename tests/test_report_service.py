@@ -107,6 +107,7 @@ class ReportServiceTests(unittest.TestCase):
             classify_model="classify-model",
             classify_max_tokens=64,
             summary_align_max_tokens=384,
+            summary_align_enabled=True,
         )
 
         post_calls = []
@@ -121,7 +122,10 @@ class ReportServiceTests(unittest.TestCase):
                 return VllmResponse(ALIGNMENT_RESPONSE)
             raise AssertionError(f"unexpected vLLM URL: {url}")
 
-        with patch("services.classifier.requests.post", side_effect=fake_post):
+        with (
+            patch("services.classifier.requests.get", return_value=VllmResponse("")),
+            patch("services.classifier.requests.post", side_effect=fake_post),
+        ):
             report, output_filename, summary = build_weekly_news_report(
                 file_object,
                 "weekly.2026.06.05.docx",

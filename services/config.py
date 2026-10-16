@@ -20,6 +20,7 @@ class Settings:
     summary_align_max_tokens: int
     audit_archive_dir: str = "audit"
     audit_retention_days: int = 30
+    summary_align_enabled: bool = False
 
 
 def _get_float(name, default, minimum=0):
@@ -74,4 +75,6 @@ def get_settings(env_file=".env"):
         summary_align_max_tokens=_get_int("SUMMARY_ALIGN_MAX_TOKENS", 384, minimum=64),
         audit_archive_dir=os.getenv("AUDIT_ARCHIVE_DIR") or "audit",
         audit_retention_days=_get_int("AUDIT_RETENTION_DAYS", 30, minimum=1),
+        summary_align_enabled=os.getenv("SUMMARY_ALIGN_ENABLED", "false").strip().lower()
+        in ("1", "true", "yes", "on"),
     )

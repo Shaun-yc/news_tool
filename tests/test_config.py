@@ -34,6 +34,16 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.vllm_timeout_seconds, 600.0)
         self.assertEqual(settings.audit_archive_dir, "audit")
         self.assertEqual(settings.audit_retention_days, 30)
+        self.assertFalse(settings.summary_align_enabled)
+
+    def test_summary_align_enabled_parses_truthy_and_falsey_values(self):
+        for value in ("1", "true", "TRUE", "yes", "on"):
+            with patch.dict(os.environ, {"SUMMARY_ALIGN_ENABLED": value}, clear=True):
+                self.assertTrue(get_settings(env_file=None).summary_align_enabled)
+
+        for value in ("0", "false", "off", "invalid"):
+            with patch.dict(os.environ, {"SUMMARY_ALIGN_ENABLED": value}, clear=True):
+                self.assertFalse(get_settings(env_file=None).summary_align_enabled)
 
     def test_get_settings_loads_local_env_without_overriding_process_env(self):
         with tempfile.TemporaryDirectory() as temp_dir:

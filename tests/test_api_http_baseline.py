@@ -161,6 +161,7 @@ class ApiHttpBaselineTests(unittest.TestCase):
                 "CLASSIFY_BASE_URL": "http://classify.local",
                 "CLASSIFY_MODEL": "classify-model",
                 "CLASSIFY_MAX_TOKENS": "64",
+                "SUMMARY_ALIGN_ENABLED": "false",
                 "SUMMARY_ALIGN_MAX_TOKENS": "384",
                 "SCRAPE_DELAY_SECONDS": "0",
                 "CLASSIFY_DELAY_SECONDS": "0",
@@ -169,18 +170,19 @@ class ApiHttpBaselineTests(unittest.TestCase):
                 "AUDIT_RETENTION_DAYS": "30",
             }
             with patch.dict(os.environ, environment, clear=False):
-                with patch("services.classifier.requests.post", return_value=VllmResponse()):
-                    with TestClient(app) as client:
-                        response = client.post(
-                            "/process",
-                            files={
-                                "file": (
-                                    "weekly.2026.08.13.docx",
-                                    docx_bytes,
-                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                )
-                            },
-                        )
+                with patch("services.classifier.requests.get", return_value=VllmResponse()):
+                    with patch("services.classifier.requests.post", return_value=VllmResponse()):
+                        with TestClient(app) as client:
+                            response = client.post(
+                                "/process",
+                                files={
+                                    "file": (
+                                        "weekly.2026.08.13.docx",
+                                        docx_bytes,
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    )
+                                },
+                            )
 
             self.assertEqual(response.status_code, 200)
             self.assertTrue(manual_backup.exists())
@@ -245,6 +247,7 @@ class ApiHttpBaselineTests(unittest.TestCase):
                 "CLASSIFY_BASE_URL": "http://classify.local",
                 "CLASSIFY_MODEL": "classify-model",
                 "CLASSIFY_MAX_TOKENS": "64",
+                "SUMMARY_ALIGN_ENABLED": "false",
                 "SUMMARY_ALIGN_MAX_TOKENS": "384",
                 "SCRAPE_DELAY_SECONDS": "0",
                 "CLASSIFY_DELAY_SECONDS": "0",
@@ -253,18 +256,19 @@ class ApiHttpBaselineTests(unittest.TestCase):
                 "AUDIT_RETENTION_DAYS": "30",
             }
             with patch.dict(os.environ, environment, clear=False):
-                with patch("services.classifier.requests.post", return_value=VllmResponse()):
-                    with TestClient(app) as client:
-                        response = client.post(
-                            "/process",
-                            files={
-                                "file": (
-                                    filename,
-                                    docx_bytes,
-                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                )
-                            },
-                        )
+                with patch("services.classifier.requests.get", return_value=VllmResponse()):
+                    with patch("services.classifier.requests.post", return_value=VllmResponse()):
+                        with TestClient(app) as client:
+                            response = client.post(
+                                "/process",
+                                files={
+                                    "file": (
+                                        filename,
+                                        docx_bytes,
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    )
+                                },
+                            )
 
             self.assertEqual(response.status_code, 200)
             self.assertEqual(

@@ -133,6 +133,11 @@ def _build_summary_alignment_prompt(title, content, tags, english_content=""):
 
 
 def _classify_with_vllm(base_url, model_name, prompt, timeout, temperature, max_tokens):
+    logger.info(
+        "vLLM classification request started: base_url=%s model=%s",
+        base_url,
+        model_name,
+    )
     response = requests.post(
         f"{base_url.rstrip('/')}/v1/chat/completions",
         headers={"Content-Type": "application/json"},
@@ -174,8 +179,23 @@ def align_summary_to_tags(
     if not content or not content.strip() or tags == REVIEW_REQUIRED:
         return content, False
 
+    remaining_seconds = _vllm_unavailable_seconds_remaining(vllm_base_url)
+    if remaining_seconds > 0:
+        logger.warning(
+            "Skipping summary alignment for title: %s; service temporarily unavailable for %.0f more seconds",
+            title,
+            remaining_seconds,
+        )
+        return content, False
+
     prompt = _build_summary_alignment_prompt(title, content, tags, english_content)
     try:
+        logger.info(
+            "vLLM summary alignment request started: base_url=%s model=%s title=%s",
+            vllm_base_url,
+            vllm_model,
+            title,
+        )
         response = requests.post(
             f"{vllm_base_url.rstrip('/')}/v1/chat/completions",
             headers={"Content-Type": "application/json"},
@@ -198,6 +218,11 @@ def align_summary_to_tags(
         )
         response.raise_for_status()
         aligned_summary = response.json()["choices"][0]["message"]["content"].strip()
+        _mark_vllm_available(vllm_base_url)
+    except requests.RequestException:
+        _mark_vllm_unavailable(vllm_base_url)
+        logger.exception("Summary alignment service unavailable for title: %s", title)
+        return content, False
     except Exception:
         logger.exception("Summary alignment failed for title: %s", title)
         return content, False
@@ -229,6 +254,50 @@ def _mark_vllm_unavailable(base_url):
 
 def _mark_vllm_available(base_url):
     _vllm_unavailable_until.pop(_vllm_key(base_url), None)
+
+
+def wait_for_vllm(
+    base_url,
+    health_timeout,
+    total_timeout,
+    poll_interval,
+    sleep=None,
+    monotonic=None,
+):
+    """Wait for a vLLM health endpoint and clear stale cooldown state."""
+    sleep = sleep or time.sleep
+    monotonic = monotonic or time.monotonic
+    deadline = monotonic() + max(0, total_timeout)
+    health_url = f"{(base_url or '').rstrip('/')}/health"
+
+    while (remaining_seconds := deadline - monotonic()) > 0:
+        request_timeout = min(health_timeout, remaining_seconds)
+        logger.info(
+            "vLLM health request started: base_url=%s timeout=%s",
+            base_url,
+            request_timeout,
+        )
+        try:
+            response = requests.get(health_url, timeout=request_timeout)
+            response.raise_for_status()
+        except requests.RequestException as error:
+            remaining_seconds = deadline - monotonic()
+            if remaining_seconds <= 0:
+                logger.warning(
+                    "vLLM health check timed out: base_url=%s error=%s",
+                    base_url,
+                    error,
+                )
+                break
+            sleep(min(max(poll_interval, 0.1), remaining_seconds))
+            continue
+
+        _mark_vllm_available(base_url)
+        logger.info("vLLM health check succeeded: base_url=%s", base_url)
+        return True
+
+    _mark_vllm_unavailable(base_url)
+    return False
 
 
 def classify_news(

@@ -46,7 +46,7 @@ app.py
               on_scrape_progress=..., on_classify_progress=...)
             -> scraper.scrape_article(session, source_url, timeout)
             -> classifier.classify_news(...)
-            -> classifier.align_summary_to_tags(...) when classification succeeds
+            -> classifier.align_summary_to_tags(...) when enabled and classification succeeds
        -> excel_exporter.build_excel_report(news_list, week_date)
   -> audit_archive.archive_report_safely(...)
        -> audit_archive.archive_report(...)
@@ -112,7 +112,7 @@ api.py POST /process
 - `normalize_tags()` 接受白名單中的 1 到 3 個標籤；單一核心主題允許 1 個，超過 3 個會取前 3 個，沒有有效標籤或 `NONE` 會回傳 `None`。
 - vLLM `requests.RequestException` 會啟動 `VLLM_UNAVAILABLE_COOLDOWN_SECONDS = 300` 秒 cooldown；cooldown 期間分類直接回傳 `REVIEW_REQUIRED, False`。
 - 分類失敗、無效標籤、`NONE` 或 cooldown 都不會中斷整批流程，而是標記為待人工確認。
-- `align_summary_to_tags()` 只在分類成功後執行，使用主模型與已固定的標籤重新檢查中文摘要。
+- `align_summary_to_tags()` 只在 `SUMMARY_ALIGN_ENABLED=true` 且分類成功後執行，使用主模型與已固定的標籤重新檢查中文摘要。
 - 摘要對齊不得改動標籤或杜撰來源沒有的資訊；模型回傳 `KEEP_ORIGINAL`、輸出少於 120 或超過 500 字、呼叫失敗時都保留原摘要。
 
 ### `services/processor.py`
@@ -120,7 +120,7 @@ api.py POST /process
 - 主要函式：`process_news()`。
 - 對整批 `news_list` 執行兩個 sequential loops，第二個 loop 內含條件式摘要對齊：
   1. Scrape phase：呼叫 `scrape_article()`，填入 `en_title`、`pubdate`、`en_content`、`scrape_succeeded`。
-  2. Classify phase：呼叫 `classify_news()`，填入 `subcategory`、`classification_succeeded`；成功時接著呼叫 `align_summary_to_tags()`，必要時更新 `content`。
+  2. Classify phase：批次開始分類前以 `/health` 等待模型就緒；整批共用該檢查結果，逾時後所有項目標記為待人工確認。就緒時呼叫 `classify_news()`，填入 `subcategory`、`classification_succeeded`；後續推論錯誤仍遵守 cooldown。分類成功且啟用摘要對齊時，才呼叫 `align_summary_to_tags()`，必要時更新 `content`。
 - 若 scrape 失敗，不會把失敗訊息當英文證據送入分類 prompt。
 - 回傳 `ProcessingSummary(total_count, scrape_failed_count, classification_fallback_count, summary_aligned_count)`。
 
@@ -146,8 +146,9 @@ api.py POST /process
 
 - 使用 `@dataclass(frozen=True)` 定義 `Settings`。
 - `get_settings()` 從環境變數讀取設定。
-- 若環境變數不存在，會使用程式內 fallback 預設值。這些預設值與 `.env.example` 對齊，但可能不適合所有部署環境。
+- 若環境變數不存在，會使用程式內 fallback 預設值；`.env.example` 提供目前 e4b 部署的連線範例。
 - `CLASSIFY_BASE_URL`／`CLASSIFY_MODEL` 供分類使用，缺少時退回主模型；摘要對齊使用 `VLLM_BASE_URL`／`VLLM_MODEL` 與 `SUMMARY_ALIGN_MAX_TOKENS`。
+- `SUMMARY_ALIGN_ENABLED` 預設為 `false`：保留 Word 原摘要，不呼叫摘要對齊模型，摘要對齊數為 0；啟用後才在分類成功時嘗試對齊。
 - `VLLM_MAX_TOKENS` 仍會載入 `Settings`，但目前主流程沒有把它傳入任何模型呼叫。
 
 ### `services/audit_archive.py`
@@ -171,6 +172,7 @@ VLLM_MAX_TOKENS
 CLASSIFY_BASE_URL
 CLASSIFY_MODEL
 CLASSIFY_MAX_TOKENS
+SUMMARY_ALIGN_ENABLED
 SUMMARY_ALIGN_MAX_TOKENS
 
 SCRAPE_DELAY_SECONDS

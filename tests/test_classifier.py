@@ -16,6 +16,7 @@ from services.classifier import (
     align_summary_to_tags,
     classify_news,
     normalize_tags,
+    wait_for_vllm,
 )
 
 
@@ -97,6 +98,28 @@ class ClassifierTests(unittest.TestCase):
 
         self.assertEqual(summary, "原始摘要內容。")
         self.assertFalse(aligned)
+
+    @patch("services.classifier.requests.post")
+    def test_align_summary_skips_known_unavailable_service(self, post):
+        base_url = "http://192.168.0.92:8000"
+        _vllm_unavailable_until[base_url] = float("inf")
+
+        with self.assertLogs("services.classifier", level="WARNING") as logs:
+            summary, aligned = align_summary_to_tags(
+                "標題",
+                "原始摘要內容。",
+                "碳定價;氣候法制",
+                base_url,
+                "test-model",
+                300,
+                0,
+                384,
+            )
+
+        self.assertEqual(summary, "原始摘要內容。")
+        self.assertFalse(aligned)
+        post.assert_not_called()
+        self.assertIn("Skipping summary alignment", logs.output[0])
 
     @patch("services.classifier.requests.post")
     def test_align_summary_preserves_tags_outside_summary_output(self, post):
@@ -313,22 +336,108 @@ class ClassifierTests(unittest.TestCase):
         self.assertTrue(succeeded)
         self.assertEqual(vllm.call_count, 2)
 
+    @patch("services.classifier.requests.get")
+    def test_wait_for_vllm_waits_for_recovery_and_clears_cooldown(self, health):
+        base_url = "http://192.168.0.92:8001"
+        _vllm_unavailable_until[base_url] = float("inf")
+        healthy_response = requests.Response()
+        healthy_response.status_code = 200
+        clock = [100.0]
+
+        def monotonic():
+            return clock[0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        health.side_effect = [
+            requests.ConnectionError("connection refused"),
+            healthy_response,
+        ]
+
+        self.assertTrue(
+            wait_for_vllm(
+                base_url,
+                health_timeout=7,
+                total_timeout=30,
+                poll_interval=5,
+                sleep=sleep,
+                monotonic=monotonic,
+            )
+        )
+
+        self.assertNotIn(base_url, _vllm_unavailable_until)
+        self.assertEqual(health.call_count, 2)
+        health.assert_any_call("http://192.168.0.92:8001/health", timeout=7)
+
+    @patch("services.classifier.requests.get")
+    def test_wait_for_vllm_returns_false_after_total_timeout(self, health):
+        base_url = "http://192.168.0.92:8001"
+        clock = [100.0]
+
+        def monotonic():
+            return clock[0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        health.side_effect = requests.ConnectionError("connection refused")
+
+        self.assertFalse(
+            wait_for_vllm(
+                base_url,
+                health_timeout=7,
+                total_timeout=5,
+                poll_interval=2,
+                sleep=sleep,
+                monotonic=monotonic,
+            )
+        )
+
+        self.assertIn(base_url, _vllm_unavailable_until)
+        self.assertGreaterEqual(health.call_count, 1)
+
+    @patch("services.classifier.requests.get")
+    def test_wait_for_vllm_bounds_request_by_remaining_budget(self, health):
+        clock = [100.0]
+
+        def timed_out_health(url, timeout):
+            clock[0] += timeout
+            raise requests.Timeout("health request timed out")
+
+        health.side_effect = timed_out_health
+
+        ready = wait_for_vllm(
+            "http://classify.local",
+            health_timeout=7,
+            total_timeout=2,
+            poll_interval=1,
+            sleep=lambda seconds: self.fail("deadline exhausted; must not sleep"),
+            monotonic=lambda: clock[0],
+        )
+
+        self.assertFalse(ready)
+        health.assert_called_once_with("http://classify.local/health", timeout=2)
+        self.assertEqual(clock[0], 102.0)
+
     @patch("services.classifier.requests.post")
     def test_vllm_request_uses_chat_completions(self, post):
         post.return_value.json.return_value = {
             "choices": [{"message": {"content": "碳定價;氣候法制"}}]
         }
 
-        result = _classify_with_vllm(
-            "http://192.168.0.92:8000",
-            "diffusiongemma-4-26b",
-            "prompt",
-            300,
-            0.2,
-            128,
-        )
+        with self.assertLogs("services.classifier", level="INFO") as logs:
+            result = _classify_with_vllm(
+                "http://192.168.0.92:8000",
+                "diffusiongemma-4-26b",
+                "prompt",
+                300,
+                0.2,
+                128,
+            )
 
         self.assertEqual(result, "碳定價;氣候法制")
+        self.assertIn("classification request started", logs.output[0])
         post.assert_called_once_with(
             "http://192.168.0.92:8000/v1/chat/completions",
             headers={"Content-Type": "application/json"},

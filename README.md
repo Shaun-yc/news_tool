@@ -8,7 +8,7 @@
 - 擷取來源網站英文標題、發布日期與完整英文內文
 - 爬蟲先使用 `requests + BeautifulSoup`，失敗或內文太短時使用 Playwright/Chromium fallback
 - 根據 Word 內的中文標題與摘要，使用分類專用 vLLM 產生 1 至 3 個新聞分類標籤
-- 分類成功後，以主 vLLM 在固定標籤不變的前提下對齊中文摘要；證據不足時保留原摘要
+- 分類成功後，可選擇以主 vLLM 在固定標籤不變的前提下對齊中文摘要；目前預設停用，停用時保留原摘要
 - 僅接受固定標籤池內的類別；資訊不足、回應無效或模型呼叫失敗時標記「待人工確認」
 - 產出標準格式 Excel，並清楚標示需人工確認的資料
 - 在畫面顯示處理總數、來源擷取失敗數、分類待人工確認數與摘要對齊數
@@ -29,14 +29,15 @@ Copy-Item .env.example .env
 
 | 變數 | 必填 | 預設值 | 說明 |
 | --- | --- | --- | --- |
-| `VLLM_BASE_URL` | 否 | `http://localhost:8000` | 主 vLLM OpenAI-compatible 服務位址，用於摘要對齊；分類專用位址未設定時也會使用 |
-| `VLLM_MODEL` | 否 | `diffusiongemma-4-26b` | 主模型名稱，用於摘要對齊；分類專用模型未設定時也會使用 |
+| `VLLM_BASE_URL` | 否 | `http://localhost:8000` | 主 vLLM OpenAI-compatible 服務位址；摘要對齊啟用時使用，分類設定缺少時作為備援 |
+| `VLLM_MODEL` | 否 | `diffusiongemma-4-26b` | 主模型名稱；摘要對齊啟用時使用，分類設定缺少時作為備援 |
 | `VLLM_TIMEOUT_SECONDS` | 否 | `600` | vLLM 推論逾時秒數 |
 | `VLLM_TEMPERATURE` | 否 | `0` | 模型溫度；分類任務建議維持 0 |
 | `VLLM_MAX_TOKENS` | 否 | `256` | 保留的主模型輸出上限設定；目前摘要對齊改用 `SUMMARY_ALIGN_MAX_TOKENS` |
 | `CLASSIFY_BASE_URL` | 否 | 同 `VLLM_BASE_URL` | 分類專用模型位址；未設定時退回主模型 |
 | `CLASSIFY_MODEL` | 否 | 同 `VLLM_MODEL` | 分類專用模型名稱 |
 | `CLASSIFY_MAX_TOKENS` | 否 | `64` | 分類輸出最大 token 數 |
+| `SUMMARY_ALIGN_ENABLED` | 否 | `false` | 是否在分類成功後呼叫主模型對齊中文摘要；目前預設停用，需主模型服務可用時才設為 `true` |
 | `SUMMARY_ALIGN_MAX_TOKENS` | 否 | `384` | 依固定分類標籤對齊中文摘要的最大輸出 token 數 |
 | `SCRAPE_DELAY_SECONDS` | 否 | `0.8` | 每次網站擷取後等待秒數 |
 | `CLASSIFY_DELAY_SECONDS` | 否 | `3.5` | 每次 AI 分類後等待秒數 |
@@ -51,7 +52,7 @@ git clone https://github.com/Shaun-yc/news_tool.git
 cd news_tool
 ```
 
-此系統需要可連線的 vLLM OpenAI-compatible API。請依環境修改 `.env` 中的 `VLLM_BASE_URL`；若使用獨立分類模型，也要設定 `CLASSIFY_BASE_URL` 與 `CLASSIFY_MODEL`。
+此系統需要可連線的 vLLM OpenAI-compatible API。現行 e4b 部署位址為 `http://192.168.0.91:8003`，可在 `.env` 同時設定 `VLLM_BASE_URL` 與 `CLASSIFY_BASE_URL`，模型名稱使用 `gemma-4-e4b`。摘要對齊目前停用；要重新啟用時將 `SUMMARY_ALIGN_ENABLED` 設為 `true`，並確認 `VLLM_BASE_URL` 與 `VLLM_MODEL` 指向可用的主模型服務。
 
 ## 分類行為
 

@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 import requests
 
-from services.classifier import align_summary_to_tags, classify_news
+from services.classifier import REVIEW_REQUIRED, align_summary_to_tags, classify_news, wait_for_vllm
 from services.config import Settings
 from services.news_types import NewsItem
 from services.scraper import scrape_article
@@ -37,6 +37,7 @@ def process_news(
     scrape_failed_count = 0
     classification_fallback_count = 0
     summary_aligned_count = 0
+    classifier_ready = None
 
     logger.info("Weekly news processing started: total=%s", total_count)
 
@@ -60,21 +61,33 @@ def process_news(
 
     for index, news in enumerate(news_list, start=1):
         on_classify_progress(index, total_count, news)
-        tags, succeeded = classify_news(
-            news["zh_title"],
-            news["content"],
-            settings.classify_base_url,
-            settings.classify_model,
-            settings.vllm_timeout_seconds,
-            settings.vllm_temperature,
-            settings.classify_max_tokens,
-            english_content=news.get("en_content", "") if news.get("scrape_succeeded") else "",
-        )
+        if classifier_ready is None:
+            classifier_ready = wait_for_vllm(
+                settings.classify_base_url,
+                settings.request_timeout_seconds,
+                settings.vllm_timeout_seconds,
+                settings.classify_delay_seconds,
+                sleep=sleep,
+            )
+
+        if classifier_ready:
+            tags, succeeded = classify_news(
+                news["zh_title"],
+                news["content"],
+                settings.classify_base_url,
+                settings.classify_model,
+                settings.vllm_timeout_seconds,
+                settings.vllm_temperature,
+                settings.classify_max_tokens,
+                english_content=news.get("en_content", "") if news.get("scrape_succeeded") else "",
+            )
+        else:
+            tags, succeeded = REVIEW_REQUIRED, False
         news["subcategory"] = tags
         news["classification_succeeded"] = succeeded
         if not succeeded:
             classification_fallback_count += 1
-        else:
+        elif settings.summary_align_enabled:
             aligned_content, aligned = align_summary_to_tags(
                 news["zh_title"],
                 news["content"],
